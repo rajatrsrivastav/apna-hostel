@@ -14,11 +14,11 @@ import {
 import { sql } from "drizzle-orm";
 export const roleEnum = pgEnum("role", ["student", "admin"]);
 export const approvalEnum = pgEnum("approval_status", [
+  "onboarding_incomplete",
   "pending",
   "accepted",
   "rejected",
 ]);
-export const courseEnum = pgEnum("course", ["ITI", "Diploma"]);
 export const methodEnum = pgEnum("payment_method", [
   "razorpay",
   "manual_upi",
@@ -39,7 +39,7 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   role: roleEnum("role").default("student").notNull(),
-  approvalStatus: approvalEnum("approval_status").default("pending").notNull(),
+  approvalStatus: approvalEnum("approval_status").default("onboarding_incomplete").notNull(),
   monthlyRent: integer("monthly_rent").default(100_000).notNull(),
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   approvalRevision: integer("approval_revision").default(0).notNull(),
@@ -126,7 +126,7 @@ export const studentProfiles = pgTable("student_profiles", {
     .references(() => users.id, { onDelete: "restrict" }),
   fullName: text("full_name").notNull(),
   phone: text("phone").notNull(),
-  course: courseEnum("course").notNull(),
+  course: text("course").notNull(),
   trade: text("trade").notNull(),
   studyYear: text("study_year").notNull(),
   createdAt: created(),

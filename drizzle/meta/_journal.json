@@ -43,6 +43,13 @@
       "when": 1789387000000,
       "tag": "0005_notification_payment",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789390000000,
+      "tag": "0006_onboarding_status_and_course",
+      "breakpoints": true
     }
   ]
 }

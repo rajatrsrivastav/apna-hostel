@@ -7,6 +7,7 @@ export default async function ApprovalPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
   if (user.role === "admin") redirect("/admin");
+  if (!user.hasProfile) redirect("/onboarding");
   if (user.approvalStatus === "accepted") redirect("/dashboard");
   return (
     <main

@@ -15,7 +15,7 @@ export function OnboardingForm({ name }: { name: string }) {
         const form = new FormData(e.currentTarget);
         action.run(async () => {
           await api("/api/profile", Object.fromEntries(form));
-          router.push("/dashboard");
+          router.replace("/approval");
           router.refresh();
         });
       }}
@@ -43,15 +43,20 @@ export function OnboardingForm({ name }: { name: string }) {
         />
       </Field>
       <Field label="Course / कोर्स">
-        <select name="course" required defaultValue="">
-          <option value="" disabled>
-            Choose your course
-          </option>
-          <option>ITI</option>
-          <option>Diploma</option>
-        </select>
+        <Input
+          name="course"
+          list="course-options"
+          placeholder="Choose or type your course"
+          autoComplete="off"
+          maxLength={80}
+          required
+        />
+        <datalist id="course-options">
+          <option value="ITI" />
+          <option value="Diploma" />
+        </datalist>
       </Field>
-      <Field label="Branch or trade / ट्रेड">
+      <Field label="Branch / ब्रांच">
         <Input
           name="trade"
           placeholder="e.g. Electrician, Mechanical"
@@ -59,23 +64,6 @@ export function OnboardingForm({ name }: { name: string }) {
           maxLength={80}
           required
         />
-      </Field>
-      <Field label="Year / Semester">
-        <select name="studyYear" required defaultValue="">
-          <option value="" disabled>
-            Choose year or semester
-          </option>
-          <optgroup label="Year">
-            {[1, 2, 3].map((n) => (
-              <option key={n}>Year {n}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Semester">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <option key={n}>Semester {n}</option>
-            ))}
-          </optgroup>
-        </select>
       </Field>
       <Feedback error={action.error} />
       <Button size="lg" className="w-full" disabled={action.busy}>

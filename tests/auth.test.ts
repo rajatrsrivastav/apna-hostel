@@ -32,7 +32,7 @@ it("Better Auth creates and reads real users and sessions through the migrated D
   );
   expect(user.id).toBeTruthy();
   expect(user.role).toBe("student");
-  expect(user.approvalStatus).toBe("pending");
+  expect(user.approvalStatus).toBe("onboarding_incomplete");
   const session = await context.internalAdapter.createSession(user.id);
   expect(session?.token).toBeTruthy();
   const found = await context.internalAdapter.findSession(session!.token);
@@ -119,4 +119,24 @@ it("supports a trimmed case-insensitive admin allowlist and overrides the legacy
     configuredRole({ email: "outsider@example.test", emailVerified: true }),
   ).toBe("student");
   delete process.env.ADMIN_EMAILS;
+});
+
+it("removed review login returns 404 even with the old feature flag enabled", async () => {
+  process.env.ENABLE_RAZORPAY_REVIEW_LOGIN = "true";
+  try {
+    const { POST } = await import("@/app/api/auth/[...all]/route");
+    const response = await POST(
+      new Request("http://localhost:3000/api/auth/review-login", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email: "review@example.test", password: "old-password" }),
+      }),
+    );
+    expect(response.status).toBe(404);
+  } finally {
+    delete process.env.ENABLE_RAZORPAY_REVIEW_LOGIN;
+  }
 });

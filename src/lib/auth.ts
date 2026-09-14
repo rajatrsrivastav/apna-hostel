@@ -10,7 +10,6 @@ import {
   verifications,
   rateLimits,
 } from "@/db/schema";
-import { reviewLoginPlugin } from "./review-login";
 import { authEnv, configuredRole } from "./env";
 let instance: ReturnType<typeof createAuth> | undefined;
 function createAuth() {
@@ -48,7 +47,7 @@ function createAuth() {
       additionalFields: {
         approvalStatus: {
           type: "string",
-          defaultValue: "pending",
+          defaultValue: "onboarding_incomplete",
           input: false,
         },
         role: { type: "string", defaultValue: "student", input: false },
@@ -64,7 +63,7 @@ function createAuth() {
     },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
     trustedOrigins: [new URL(env.BETTER_AUTH_URL).origin],
-    plugins: [reviewLoginPlugin, nextCookies()],
+    plugins: [nextCookies()],
   });
 }
 export function getAuth() {

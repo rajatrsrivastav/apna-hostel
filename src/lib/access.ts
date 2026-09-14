@@ -4,16 +4,12 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getAuth } from "./auth";
 import { getDb } from "@/db";
-import { users, studentProfiles, sessions } from "@/db/schema";
-import { configuredRole, REVIEW_USER_ID, reviewLoginEnabled } from "./env";
+import { users, studentProfiles } from "@/db/schema";
+import { configuredRole } from "./env";
 import { AppError } from "./errors";
 export async function currentUser() {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) return null;
-  if (session.user.id === REVIEW_USER_ID && !reviewLoginEnabled()) {
-    await getDb().delete(sessions).where(eq(sessions.userId, REVIEW_USER_ID));
-    return null;
-  }
   const [user] = await getDb()
     .select()
     .from(users)
@@ -26,14 +22,27 @@ export async function currentUser() {
       .set({ role, updatedAt: new Date() })
       .where(eq(users.id, user.id));
   }
-  return { ...user, role };
+  const [profile] =
+    role === "admin"
+      ? []
+      : await getDb()
+          .select({ userId: studentProfiles.userId })
+          .from(studentProfiles)
+          .where(eq(studentProfiles.userId, user.id));
+  return { ...user, role, hasProfile: Boolean(profile) };
 }
-export function homePath(user: { role: string; approvalStatus: string }) {
+export function homePath(user: {
+  role: string;
+  approvalStatus: string;
+  hasProfile: boolean;
+}) {
   return user.role === "admin"
     ? "/admin"
-    : user.approvalStatus === "accepted"
-      ? "/dashboard"
-      : "/approval";
+    : !user.hasProfile
+      ? "/onboarding"
+      : user.approvalStatus === "accepted"
+        ? "/dashboard"
+        : "/approval";
 }
 export async function requireUser() {
   const user = await currentUser();
@@ -54,6 +63,7 @@ export async function studentPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
   if (user.role === "admin") redirect("/admin");
+  if (!user.hasProfile) redirect("/onboarding");
   if (user.approvalStatus !== "accepted") redirect("/approval");
   const [profile] = await getDb()
     .select()

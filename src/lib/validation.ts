@@ -29,9 +29,8 @@ export const profileSchema = z.object({
     .string()
     .trim()
     .regex(/^[6-9]\d{9}$/, "Enter a 10-digit mobile number."),
-  course: z.enum(["ITI", "Diploma"]),
+  course: z.string().trim().min(1, "Enter or choose your course.").max(80),
   trade: z.string().trim().min(2, "Enter your branch or trade.").max(80),
-  studyYear: z.string().trim().min(1, "Choose your year or semester.").max(30),
 });
 export const feeSchema = z.object({
   userId: idSchema,

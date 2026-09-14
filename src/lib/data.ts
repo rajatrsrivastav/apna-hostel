@@ -107,3 +107,12 @@ export async function getStudent(id: string) {
     .where(and(eq(users.id, id), eq(users.role, "student")));
   return row;
 }
+
+export async function pendingStudents() {
+  return getDb()
+    .select({ user: users, profile: studentProfiles })
+    .from(users)
+    .innerJoin(studentProfiles, eq(users.id, studentProfiles.userId))
+    .where(and(eq(users.role, "student"), eq(users.approvalStatus, "pending")))
+    .orderBy(desc(users.createdAt));
+}

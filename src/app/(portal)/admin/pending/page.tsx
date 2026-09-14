@@ -1,17 +1,11 @@
 import Link from "next/link";
-import { and, eq, ne, desc } from "drizzle-orm";
-import { getDb } from "@/db";
-import { users } from "@/db/schema";
 import { requireAdmin } from "@/lib/access";
+import { pendingStudents } from "@/lib/data";
 import { Card } from "@/components/ui/card";
 import { AdmissionActions } from "@/components/admission-actions";
 export default async function PendingStudents() {
   await requireAdmin();
-  const students = await getDb()
-    .select()
-    .from(users)
-    .where(and(eq(users.role, "student"), ne(users.approvalStatus, "accepted")))
-    .orderBy(desc(users.createdAt));
+  const students = await pendingStudents();
   return (
     <div className="space-y-6">
       <div>
@@ -20,41 +14,40 @@ export default async function PendingStudents() {
           Accept a student to enable access and start ₹1,000 monthly rent.
         </p>
       </div>
-      {["pending", "rejected"].map((status) => (
-        <section key={status} className="space-y-3">
-          <h2 className="text-lg font-semibold">
-            {status === "pending" ? "Waiting for approval" : "Rejected"} ·{" "}
-            {students.filter((s) => s.approvalStatus === status).length}
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            {students
-              .filter((s) => s.approvalStatus === status)
-              .map((s) => (
-                <Card key={`${s.id}-${s.approvalRevision}`}>
-                  <Link
-                    href={`/admin/students/${s.id}`}
-                    className="font-semibold"
-                  >
-                    {s.name}
-                  </Link>
-                  <p className="mb-5 mt-1 break-all text-sm text-muted-foreground">
-                    {s.email}
-                  </p>
-                  <AdmissionActions
-                    id={s.id}
-                    status={s.approvalStatus}
-                    revision={s.approvalRevision}
-                  />
-                </Card>
-              ))}
-          </div>
-          {!students.some((s) => s.approvalStatus === status) && (
-            <p className="text-sm text-muted-foreground">
-              No {status} students.
-            </p>
-          )}
-        </section>
-      ))}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">
+          Waiting for approval · {students.length}
+        </h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          {students.map(({ user: s, profile }) => (
+            <Card key={`${s.id}-${s.approvalRevision}`}>
+              <Link href={`/admin/students/${s.id}`} className="font-semibold">
+                {profile.fullName}
+              </Link>
+              <p className="mt-1 break-all text-sm text-muted-foreground">
+                {s.email}
+              </p>
+              <dl className="mb-5 mt-3 space-y-1 text-sm">
+                {[
+                  ["Phone", profile.phone],
+                  ["Course", profile.course],
+                  ["Branch", profile.trade],
+                  ["Year", profile.studyYear || "Not provided"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex gap-2">
+                    <dt className="text-muted-foreground">{label}:</dt>
+                    <dd className="min-w-0 break-words">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <AdmissionActions id={s.id} status={s.approvalStatus} revision={s.approvalRevision} />
+            </Card>
+          ))}
+        </div>
+        {!students.length && (
+          <p className="text-sm text-muted-foreground">No pending students.</p>
+        )}
+      </section>
     </div>
   );
 }

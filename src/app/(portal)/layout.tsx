@@ -11,6 +11,7 @@ export default async function PortalLayout({
     redirect("/login");
   const user = await currentUser();
   if (!user) redirect("/login");
+  if (user.role !== "admin" && !user.hasProfile) redirect("/onboarding");
   if (user.role !== "admin" && user.approvalStatus !== "accepted")
     redirect("/approval");
   return <Shell user={{ name: user.name, role: user.role }}>{children}</Shell>;

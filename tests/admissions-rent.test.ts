@@ -38,7 +38,7 @@ import {
   studentPage,
 } from "@/lib/access";
 import { generateMonthlyRent } from "@/lib/rent";
-import { studentData } from "@/lib/data";
+import { studentData, pendingStudents } from "@/lib/data";
 import { POST as admission } from "@/app/api/admin/admissions/route";
 import {
   POST as collect,
@@ -71,7 +71,11 @@ const req = (body: object, method = "POST") =>
     },
     body: JSON.stringify(body),
   });
+async function completeProfile() {
+  await db.insert(schema.studentProfiles).values({ userId: "student", fullName: "Student", phone: "9876543210", course: "ITI", trade: "Electrician", studyYear: "Year 1" }).onConflictDoNothing();
+}
 async function acceptAt(date = "2026-01-20T10:00:00Z") {
+  await completeProfile();
   await db
     .update(schema.users)
     .set({ approvalStatus: "accepted", acceptedAt: new Date(date) })
@@ -115,7 +119,7 @@ beforeEach(async () => {
   ]);
 });
 describe("Admission gates on real database roles", () => {
-  it("defaults new students to pending and blocks every student mutation before parsing or provider calls", async () => {
+  it("defaults new students to onboarding incomplete and blocks protected student mutations before parsing or provider calls", async () => {
     shared.userId = "student";
     expect(
       (
@@ -124,10 +128,10 @@ describe("Admission gates on real database roles", () => {
           .from(schema.users)
           .where(eq(schema.users.id, "student"))
       )[0].approvalStatus,
-    ).toBe("pending");
+    ).toBe("onboarding_incomplete");
     await expect(requireUser()).rejects.toMatchObject({ status: 403 });
     await expect(requireAdmin()).rejects.toMatchObject({ status: 403 });
-    for (const handler of [profile, order, manual, verify, reconcile])
+    for (const handler of [order, manual, verify, reconcile])
       expect((await handler(req({}))).status).toBe(403);
     expect(
       (
@@ -139,10 +143,10 @@ describe("Admission gates on real database roles", () => {
     await expect(
       Receipt({ params: Promise.resolve({ id: "anything" }) }),
     ).rejects.toMatchObject({ status: 403 });
-    await expect(studentPage()).rejects.toThrow("REDIRECT:/approval");
-    await expect(Onboarding()).rejects.toThrow("REDIRECT:/approval");
+    await expect(studentPage()).rejects.toThrow("REDIRECT:/onboarding");
+    await expect(Onboarding()).resolves.toBeTruthy();
     await expect(PortalLayout({ children: null })).rejects.toThrow(
-      "REDIRECT:/approval",
+      "REDIRECT:/onboarding",
     );
   });
   it("immediately revokes existing student sessions when rejected", async () => {
@@ -167,6 +171,8 @@ describe("Admission gates on real database roles", () => {
     ).toBe(403);
   });
   it("accepts atomically, creates only the acceptance month and makes double acceptance harmless", async () => {
+    await completeProfile();
+    await db.update(schema.users).set({ approvalStatus: "pending" }).where(eq(schema.users.id, "student"));
     const body = { id: "student", decision: "accepted", revision: 0 };
     expect((await admission(req(body))).status).toBe(200);
     expect((await admission(req(body))).status).toBe(200);
@@ -388,6 +394,10 @@ describe("Unified Google role routing", () => {
     await expect(Approval()).rejects.toThrow("REDIRECT:/admin");
     shared.userId = "student";
     await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
+      "REDIRECT:/onboarding",
+    );
+    await profile(req({ fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician" }));
+    await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
       "REDIRECT:/approval",
     );
     await acceptAt();
@@ -491,4 +501,58 @@ describe("Per-student monthly fee", () => {
     ).toBe(400);
     expect((await rent())[0].amount).toBe(120000);
   });
+});
+
+
+describe("First sign-in onboarding", () => {
+  const details = { fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician" };
+  it("requires all four details and saves the session user's profile before approval", async () => {
+    shared.userId = "student";
+    await expect(Approval()).rejects.toThrow("REDIRECT:/onboarding");
+    for (const field of Object.keys(details)) {
+      expect((await profile(req({ ...details, [field]: "" }))).status).toBe(400);
+    }
+    expect(await db.select().from(schema.studentProfiles)).toHaveLength(0);
+    expect((await profile(req({ ...details, email: "spoof@example.test", userId: "other", approvalStatus: "accepted" }))).status).toBe(200);
+    const [saved] = await db.select().from(schema.studentProfiles);
+    expect(saved).toMatchObject({ ...details, userId: "student", studyYear: "" });
+    const user = await currentUser();
+    expect(user).toMatchObject({ email: "student@example.test", approvalStatus: "pending", hasProfile: true });
+    await expect(Onboarding()).rejects.toThrow("REDIRECT:/approval");
+    await expect(Approval()).resolves.toBeTruthy();
+    await expect(studentPage()).rejects.toThrow("REDIRECT:/approval");
+  });
+  it("never overwrites a returning student's profile or resets their approval", async () => {
+    shared.userId = "student";
+    await profile(req(details));
+    await acceptAt();
+    expect((await profile(req({ ...details, fullName: "Changed Name" }))).status).toBe(200);
+    expect((await currentUser())?.approvalStatus).toBe("accepted");
+    expect((await db.select().from(schema.studentProfiles))[0].fullName).toBe(details.fullName);
+    await expect(Onboarding()).rejects.toThrow("REDIRECT:/dashboard");
+  });
+  it("skips admins and rejects anonymous profile submissions", async () => {
+    await expect(Onboarding()).rejects.toThrow("REDIRECT:/admin");
+    expect((await profile(req(details))).status).toBe(403);
+    shared.userId = "";
+    expect((await profile(req(details))).status).toBe(401);
+    expect(await db.select().from(schema.studentProfiles)).toHaveLength(0);
+  });
+});
+
+
+it("lists only submitted pending profiles and accepts custom course names", async () => {
+  expect(await pendingStudents()).toHaveLength(0);
+  expect((await admission(req({ id: "student", decision: "accepted", revision: 0 }))).status).toBe(409);
+  // A legacy pending user without a profile must also stay hidden.
+  await db.update(schema.users).set({ approvalStatus: "pending" }).where(eq(schema.users.id, "other"));
+  shared.userId = "student";
+  expect((await profile(req({ fullName: "Custom Student", phone: "9876543210", course: "  Bachelor of Arts  ", trade: "History" }))).status).toBe(200);
+  const rows = await pendingStudents();
+  expect(rows).toHaveLength(1);
+  expect(rows[0].user).toMatchObject({ id: "student", email: "student@example.test", approvalStatus: "pending" });
+  expect(rows[0].profile).toMatchObject({ fullName: "Custom Student", phone: "9876543210", course: "Bachelor of Arts", trade: "History" });
+  shared.userId = "admin";
+  expect((await admission(req({ id: "student", decision: "rejected", revision: 0 }))).status).toBe(200);
+  expect(await pendingStudents()).toHaveLength(0);
 });

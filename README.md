@@ -176,3 +176,13 @@ are trimmed and matched case-insensitively; malformed entries are ignored.
 When `ADMIN_EMAILS` is unset, `ADMIN_EMAIL` remains supported. An explicitly
 empty `ADMIN_EMAILS` disables the allowlist. Current sessions re-evaluate the
 allowlist on protected requests, so removal also revokes admin access.
+
+### Onboarding status and custom courses
+
+Apply `npm run db:migrate` before deploying this update. Migration 0006 changes
+student courses to text and adds `onboarding_incomplete` as the default approval
+status. Existing pending students without profiles move to that status; submitted
+profiles and accepted/rejected decisions are preserved. Submitting the four-field
+onboarding form sets the student to pending. The pending list requires both a
+submitted profile and pending status. Year is shown from legacy profiles when
+available; the current onboarding form does not collect it.

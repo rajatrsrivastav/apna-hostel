@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users } from "@/db/schema";
+import { users, studentProfiles } from "@/db/schema";
 import { requireAdmin } from "@/lib/access";
 import { mutation, jsonBody } from "@/lib/http";
 import { AppError } from "@/lib/errors";
@@ -27,6 +27,12 @@ export const POST = mutation(async (req) => {
       .for("update");
     if (!student || configuredRole(student) === "admin")
       throw new AppError("Student not found.", 404);
+    const [profile] = await tx
+      .select({ userId: studentProfiles.userId })
+      .from(studentProfiles)
+      .where(eq(studentProfiles.userId, student.id));
+    if (!profile || student.approvalStatus === "onboarding_incomplete")
+      throw new AppError("Student must complete onboarding first.", 409);
     if (student.approvalStatus === input.decision) return;
     if (student.approvalRevision !== input.revision)
       throw new AppError(
