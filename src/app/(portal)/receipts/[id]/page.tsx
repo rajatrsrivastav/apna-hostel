@@ -101,14 +101,26 @@ export default async function Receipt({
           </div>
         )}
         {p.screenshotPublicId && (
-          <a
-            className="no-print mb-4 flex min-h-12 items-center justify-center rounded-xl border border-border text-sm font-semibold text-primary"
-            href={`/api/payments/${p.id}/screenshot`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            View payment screenshot ↗
-          </a>
+          <div className="no-print mb-4 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">
+              Payment Screenshot
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/payments/${p.id}/screenshot`}
+              alt="Payment screenshot"
+              className="w-full rounded-xl border border-border"
+              loading="lazy"
+            />
+            <a
+              className="flex min-h-10 items-center justify-center text-xs font-medium text-primary"
+              href={`/api/payments/${p.id}/screenshot`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open full size ↗
+            </a>
+          </div>
         )}
         {user.role === "admin" &&
           p.method === "manual_upi" &&

@@ -80,6 +80,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     [submitted, setSubmitted] = useState(""),
     [checkoutOpen, setCheckoutOpen] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState("");
   const action = useAction(),
     router = useRouter();
   useEffect(() => {
@@ -352,7 +353,16 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
               hint="JPG, PNG or WebP · Up to 3 MB"
             >
               <span className="relative flex min-h-28 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/50 px-3 text-center">
-                <ImagePlus className="size-6 text-primary" />
+                {preview ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={preview}
+                    alt="Selected screenshot"
+                    className="max-h-64 w-full rounded-lg object-contain"
+                  />
+                ) : (
+                  <ImagePlus className="size-6 text-primary" />
+                )}
                 <span className="max-w-full break-all text-sm text-muted-foreground">
                   {fileName || "Tap to choose screenshot"}
                 </span>
@@ -363,7 +373,12 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   required
-                  onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    setFileName(file?.name ?? "");
+                    if (preview) URL.revokeObjectURL(preview);
+                    setPreview(file ? URL.createObjectURL(file) : "");
+                  }}
                 />
               </span>
             </Field>

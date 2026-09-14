@@ -56,6 +56,17 @@ export function OnboardingForm({ name }: { name: string }) {
           <option value="Diploma" />
         </datalist>
       </Field>
+      <Field label="Year / वर्ष">
+        <select name="year" required defaultValue="">
+          <option value="" disabled>
+            Choose your year
+          </option>
+          <option value="1st Year">1st Year</option>
+          <option value="2nd Year">2nd Year</option>
+          <option value="3rd Year">3rd Year</option>
+          <option value="4th Year">4th Year</option>
+        </select>
+      </Field>
       <Field label="Branch / ब्रांच">
         <Input
           name="trade"

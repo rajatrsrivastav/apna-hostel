@@ -28,3 +28,9 @@ export function requiredEnv(key: string) {
   if (!value) throw new Error(`Missing server configuration: ${key}`);
   return value;
 }
+export function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => z.email().safeParse(email).success);
+}

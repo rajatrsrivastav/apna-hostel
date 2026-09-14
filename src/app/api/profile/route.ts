@@ -18,10 +18,17 @@ export const POST = mutation(async (req) => {
       .from(users)
       .where(eq(users.id, user.id))
       .for("update");
-    // Keep the legacy year column empty; onboarding collects only four fields.
+    // Store the year selection in the studyYear column.
     const inserted = await tx
       .insert(studentProfiles)
-      .values({ userId: user.id, ...values, studyYear: "" })
+      .values({
+        userId: user.id,
+        fullName: values.fullName,
+        phone: values.phone,
+        course: values.course,
+        trade: values.trade,
+        studyYear: values.year,
+      })
       .onConflictDoNothing()
       .returning({ userId: studentProfiles.userId });
     if (!inserted.length) return;

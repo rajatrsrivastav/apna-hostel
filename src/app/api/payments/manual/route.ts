@@ -14,6 +14,7 @@ import {
 } from "@/lib/validation";
 import { expireProviderAttempts, lockFee, feeBalance } from "@/lib/ledger";
 import { storage, uploadScreenshot, validateImage } from "@/lib/storage";
+import { notifyManualPaymentSubmitted } from "@/lib/notifications";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const POST = mutation(async (req) => {
@@ -98,5 +99,12 @@ export const POST = mutation(async (req) => {
       .catch(() => undefined);
     throw error;
   }
+  // Notify student + admins (non-blocking)
+  try {
+    await notifyManualPaymentSubmitted(id);
+  } catch (err) {
+    console.error("[Notification] notifyManualPaymentSubmitted failed:", err);
+  }
   return Response.json({ id, status: "pending" });
 });
+

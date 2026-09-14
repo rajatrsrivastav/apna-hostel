@@ -50,6 +50,13 @@
       "when": 1789390000000,
       "tag": "0006_onboarding_status_and_course",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789393000000,
+      "tag": "0007_cleanup_test_user",
+      "breakpoints": true
     }
   ]
 }

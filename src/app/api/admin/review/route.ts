@@ -8,7 +8,10 @@ import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
 import { lockFee, feeBalance } from "@/lib/ledger";
-import { notifyPaymentSuccess } from "@/lib/notifications";
+import {
+  notifyPaymentSuccess,
+  notifyPaymentRejected,
+} from "@/lib/notifications";
 export const POST = mutation(async (req) => {
   const admin = await requireAdmin();
   await rateLimit(admin.id, "admin/review", 30);
@@ -63,6 +66,13 @@ export const POST = mutation(async (req) => {
     } catch (err) {
       console.error("[Notification] notifyPaymentSuccess failed:", err);
     }
+  } else if (values.decision === "rejected") {
+    try {
+      await notifyPaymentRejected(initial.id);
+    } catch (err) {
+      console.error("[Notification] notifyPaymentRejected failed:", err);
+    }
   }
   return Response.json({ ok: true });
 });
+
