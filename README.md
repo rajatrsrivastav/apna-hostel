@@ -155,3 +155,24 @@ Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in 
 - **Stale fee update:** reload before retrying; another admin or payment changed the account.
 
 The monthly fee migration adds `users.monthly_rent` with a ₹1,000 default. Run `npm run db:migrate` before starting this version. It preserves existing dues, payments, and approval statuses. Changing the rate first generates any accrued months at the previous rate.
+
+
+### Payment attempt recovery and admin allowlist
+
+Run `npm run db:migrate` before deploying this version. Migration 0003 adds
+`payments.attempt_status` and backfills existing Razorpay rows. The existing
+`status` remains the accounting/manual-review status; `attempt_status` tracks
+checkout_started, pending, paid, failed, cancelled and abandoned separately.
+Cancellation and expiry release the existing pending-payment reservation.
+Expiry is enforced on student reads and payment mutations after 15 minutes;
+the open payment page refreshes every 15 seconds and on window focus.
+Signed webhooks and server capture verification can reconcile late captures.
+Captured payments that exceed the remaining fee are recorded as paid attempts
+with an office refund-review note, without applying a duplicate rent credit.
+The application does not automatically refund these captures.
+
+Set `ADMIN_EMAILS` to comma-separated verified Google email addresses. Entries
+are trimmed and matched case-insensitively; malformed entries are ignored.
+When `ADMIN_EMAILS` is unset, `ADMIN_EMAIL` remains supported. An explicitly
+empty `ADMIN_EMAILS` disables the allowlist. Current sessions re-evaluate the
+allowlist on protected requests, so removal also revokes admin access.

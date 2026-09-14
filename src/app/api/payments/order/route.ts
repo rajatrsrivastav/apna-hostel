@@ -1,5 +1,5 @@
 import { rateLimit } from "@/lib/rate-limit";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { payments, studentProfiles } from "@/db/schema";
@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
-import { feeBalance, lockFee } from "@/lib/ledger";
+import { expireProviderAttempts, feeBalance, lockFee } from "@/lib/ledger";
 import { createOrder } from "@/lib/razorpay";
 import { requiredEnv } from "@/lib/env";
 export const POST = mutation(async (req) => {
@@ -24,6 +24,9 @@ export const POST = mutation(async (req) => {
   const payment = await getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, feeDueId);
     if (fee.userId !== user.id) throw new AppError("Fee not found.", 404);
+    await expireProviderAttempts(user.id, tx, fee.id);
+    const amount = await feeBalance(tx, fee);
+    if (amount === 0) throw new AppError("This fee is already paid.");
     const [existing] = await tx
       .select()
       .from(payments)
@@ -34,29 +37,6 @@ export const POST = mutation(async (req) => {
       if (existing.method === "manual_upi")
         throw new AppError("Your screenshot is awaiting verification.", 409);
       return existing;
-    }
-    const amount = await feeBalance(tx, fee);
-    if (amount === 0) throw new AppError("This fee is already paid.");
-    const [retry] = await tx
-      .select()
-      .from(payments)
-      .where(
-        and(
-          eq(payments.feeDueId, fee.id),
-          eq(payments.status, "failed"),
-          eq(payments.method, "razorpay"),
-          eq(payments.amount, amount),
-        ),
-      )
-      .orderBy(desc(payments.createdAt))
-      .limit(1);
-    if (retry?.razorpayOrderId) {
-      const [resumed] = await tx
-        .update(payments)
-        .set({ status: "pending", reviewNote: null })
-        .where(eq(payments.id, retry.id))
-        .returning();
-      return resumed;
     }
     const id = crypto.randomUUID();
     const order = await createOrder(amount, id);
@@ -70,6 +50,7 @@ export const POST = mutation(async (req) => {
         feeDueId: fee.id,
         amount,
         method: "razorpay",
+        attemptStatus: "checkout_started",
         razorpayOrderId: order.id,
       })
       .returning();
@@ -79,6 +60,9 @@ export const POST = mutation(async (req) => {
     key: requiredEnv("RAZORPAY_KEY_ID"),
     orderId: payment.razorpayOrderId,
     amount: payment.amount,
+    expiresAt: new Date(
+      payment.createdAt.getTime() + 15 * 60 * 1000,
+    ).toISOString(),
     name: profile.fullName,
     email: user.email,
     phone: profile.phone,

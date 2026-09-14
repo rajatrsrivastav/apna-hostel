@@ -16,10 +16,11 @@ export function configuredRole(user: {
   emailVerified: boolean;
 }): "admin" | "student" {
   if (user.id === REVIEW_USER_ID) return "student";
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  return email &&
-    user.emailVerified &&
-    user.email.trim().toLowerCase() === email
+  const emails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => z.email().safeParse(email).success);
+  return user.emailVerified && emails.includes(user.email.trim().toLowerCase())
     ? "admin"
     : "student";
 }

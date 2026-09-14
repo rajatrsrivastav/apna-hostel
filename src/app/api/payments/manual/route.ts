@@ -12,7 +12,7 @@ import {
   idSchema,
   todayIndia,
 } from "@/lib/validation";
-import { lockFee, feeBalance } from "@/lib/ledger";
+import { expireProviderAttempts, lockFee, feeBalance } from "@/lib/ledger";
 import { storage, uploadScreenshot, validateImage } from "@/lib/storage";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -47,6 +47,7 @@ export const POST = mutation(async (req) => {
   await getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, values.feeDueId);
     if (fee.userId !== user.id) throw new AppError("Fee not found.", 404);
+    await expireProviderAttempts(user.id, tx, fee.id);
     const [pending] = await tx
       .select()
       .from(payments)

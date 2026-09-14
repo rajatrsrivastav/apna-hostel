@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -39,6 +39,7 @@ declare global {
   interface Window {
     Razorpay?: new (options: RazorpayOptions) => {
       open: () => void;
+      close: () => void;
       on: (event: string, callback: () => void) => void;
     };
   }
@@ -63,6 +64,9 @@ async function loadCheckout() {
     });
   await scriptPromise;
 }
+function remainingCheckoutMs(expiresAt: string) {
+  return Math.max(0, new Date(expiresAt).getTime() - Date.now());
+}
 export type PayableFee = {
   id: string;
   label: string;
@@ -78,6 +82,15 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
   const [fileName, setFileName] = useState("");
   const action = useAction(),
     router = useRouter();
+  useEffect(() => {
+    const timer = setInterval(() => router.refresh(), 15000);
+    const refresh = () => router.refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [router]);
   const fee = dues.find((f) => f.id === selected);
   if (submitted)
     return (
@@ -115,6 +128,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     const order = await api<{
       key: string;
       orderId: string;
+      expiresAt: string;
       amount: number;
       name: string;
       email: string;
@@ -122,6 +136,19 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     }>("/api/payments/order", { feeDueId: fee!.id });
     if (!window.Razorpay)
       throw new Error("Payment window is unavailable. Please reload.");
+    let succeeded = false;
+    let expiryTimer: ReturnType<typeof setTimeout>;
+    const cancel = async () => {
+      const result = await api<{ status: string }>("/api/payments/cancel", {
+        orderId: order.orderId,
+      });
+      setMethod("choose");
+      if (result.status === "abandoned")
+        action.setSuccess("Payment checkout expired. You can try again.");
+      if (result.status === "cancelled")
+        action.setSuccess("Payment cancelled. You can try again.");
+      router.refresh();
+    };
     const checkout = new window.Razorpay({
       key: order.key,
       order_id: order.orderId,
@@ -132,6 +159,8 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       prefill: { name: order.name, email: order.email, contact: order.phone },
       theme: { color: "#28654c" },
       handler: (result) => {
+        succeeded = true;
+        clearTimeout(expiryTimer);
         setCheckoutOpen(false);
         action.run(async () => {
           const payment = await api<{ status: string; id: string }>(
@@ -144,8 +173,9 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       },
       modal: {
         ondismiss: () => {
+          clearTimeout(expiryTimer);
           setCheckoutOpen(false);
-          router.refresh();
+          if (!succeeded) void action.run(cancel);
         },
       },
     });
@@ -155,7 +185,19 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       );
     });
     setCheckoutOpen(true);
-    checkout.open();
+    try {
+      checkout.open();
+      expiryTimer = setTimeout(() => {
+        if (succeeded) return;
+        checkout.close();
+        setCheckoutOpen(false);
+        router.refresh();
+      }, remainingCheckoutMs(order.expiresAt));
+    } catch (error) {
+      setCheckoutOpen(false);
+      await cancel();
+      throw error;
+    }
   }
   const disabled = action.busy || checkoutOpen;
   return (

@@ -41,14 +41,15 @@ vi.mock("@/lib/razorpay", async (importOriginal) => ({
   fetchOrderPayments: vi.fn(),
   createOrder: vi.fn(),
 }));
-import { settleProviderPayment } from "@/lib/ledger";
+import { expireProviderAttempts, settleProviderPayment } from "@/lib/ledger";
 import { POST as review } from "@/app/api/admin/review/route";
+import { POST as cancel } from "@/app/api/payments/cancel/route";
 import { POST as order } from "@/app/api/payments/order/route";
 import { POST as verify } from "@/app/api/payments/verify/route";
 import { POST as webhook } from "@/app/api/razorpay/webhook/route";
 import { PATCH as editFee } from "@/app/api/admin/fees/route";
 import { GET as screenshot } from "@/app/api/payments/[id]/screenshot/route";
-import { fetchPayment, createOrder } from "@/lib/razorpay";
+import { fetchPayment, fetchOrderPayments, createOrder } from "@/lib/razorpay";
 import { createHmac } from "node:crypto";
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -106,35 +107,29 @@ beforeEach(async () => {
     { id: "student-b", name: "Student B", email: "b@example.test" },
     { id: "admin", name: "Admin", email: "admin@example.test", role: "admin" },
   ]);
-  await db
-    .insert(schema.studentProfiles)
-    .values({
-      userId: "student-a",
-      fullName: "Student A",
-      phone: "9876543210",
-      course: "ITI",
-      trade: "Electrician",
-      studyYear: "Year 1",
-    });
-  await db
-    .insert(schema.feeDues)
-    .values({
-      id: "fee-1",
-      userId: "student-a",
-      label: "Hostel fee",
-      amount: 50000,
-      dueDate: "2026-10-01",
-    });
-  await db
-    .insert(schema.payments)
-    .values({
-      id: "payment-1",
-      userId: "student-a",
-      feeDueId: "fee-1",
-      amount: 50000,
-      method: "razorpay",
-      razorpayOrderId: "order_123",
-    });
+  await db.insert(schema.studentProfiles).values({
+    userId: "student-a",
+    fullName: "Student A",
+    phone: "9876543210",
+    course: "ITI",
+    trade: "Electrician",
+    studyYear: "Year 1",
+  });
+  await db.insert(schema.feeDues).values({
+    id: "fee-1",
+    userId: "student-a",
+    label: "Hostel fee",
+    amount: 50000,
+    dueDate: "2026-10-01",
+  });
+  await db.insert(schema.payments).values({
+    id: "payment-1",
+    userId: "student-a",
+    feeDueId: "fee-1",
+    amount: 50000,
+    method: "razorpay",
+    razorpayOrderId: "order_123",
+  });
 });
 describe("Migrated PostgreSQL ledger and API integration", () => {
   it("credits a captured payment once even for repeated and out-of-order notifications", async () => {
@@ -187,13 +182,11 @@ describe("Migrated PostgreSQL ledger and API integration", () => {
   it("approves manual payments idempotently and records the reviewer", async () => {
     shared.user.id = "admin";
     shared.user.role = "admin";
-    await db
-      .update(schema.payments)
-      .set({
-        method: "manual_upi",
-        razorpayOrderId: null,
-        screenshotPublicId: "hostel-payments/1",
-      });
+    await db.update(schema.payments).set({
+      method: "manual_upi",
+      razorpayOrderId: null,
+      screenshotPublicId: "hostel-payments/1",
+    });
     const req = () =>
       request("/api/admin/review", { id: "payment-1", decision: "verified" });
     expect((await review(req())).status).toBe(200);
@@ -242,24 +235,20 @@ describe("Migrated PostgreSQL ledger and API integration", () => {
   it("prevents approving manual overpayments after another payment settles", async () => {
     shared.user.id = "admin";
     shared.user.role = "admin";
-    await db
-      .update(schema.payments)
-      .set({
-        method: "manual_upi",
-        razorpayOrderId: null,
-        screenshotPublicId: "hostel-payments/1",
-      });
-    await db
-      .insert(schema.payments)
-      .values({
-        id: "other-payment",
-        userId: "student-a",
-        feeDueId: "fee-1",
-        amount: 40000,
-        method: "razorpay",
-        status: "verified",
-        razorpayOrderId: "order_other",
-      });
+    await db.update(schema.payments).set({
+      method: "manual_upi",
+      razorpayOrderId: null,
+      screenshotPublicId: "hostel-payments/1",
+    });
+    await db.insert(schema.payments).values({
+      id: "other-payment",
+      userId: "student-a",
+      feeDueId: "fee-1",
+      amount: 40000,
+      method: "razorpay",
+      status: "verified",
+      razorpayOrderId: "order_other",
+    });
     expect(
       (
         await review(
@@ -281,16 +270,14 @@ describe("Migrated PostgreSQL ledger and API integration", () => {
         })
       ).status,
     ).toBe(404);
-    await db
-      .insert(schema.studentProfiles)
-      .values({
-        userId: "student-b",
-        fullName: "Student B",
-        phone: "9876543211",
-        course: "ITI",
-        trade: "Fitter",
-        studyYear: "Year 1",
-      });
+    await db.insert(schema.studentProfiles).values({
+      userId: "student-b",
+      fullName: "Student B",
+      phone: "9876543211",
+      course: "ITI",
+      trade: "Fitter",
+      studyYear: "Year 1",
+    });
     expect(
       (await order(request("/api/payments/order", { feeDueId: "fee-1" })))
         .status,
@@ -336,26 +323,32 @@ describe("Migrated PostgreSQL ledger and API integration", () => {
     expect(response.status).toBe(200);
     expect((await payment()).status).toBe("pending");
   });
-  it("validates raw webhook bytes and handles duplicate capture events", async () => {
-    vi.mocked(fetchPayment).mockResolvedValue(captured);
-    const raw = JSON.stringify({
-      event: "payment.captured",
-      payload: { payment: { entity: { id: "pay_captured" } } },
-    });
-    const signature = createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
-      .update(raw)
-      .digest("hex");
-    const req = (body = raw) =>
-      new Request("https://hostel.example/api/razorpay/webhook", {
-        method: "POST",
-        headers: { "x-razorpay-signature": signature },
-        body,
+  it.each(["payment.captured", "order.paid"])(
+    "validates raw webhook bytes and handles duplicate %s events",
+    async (event) => {
+      vi.mocked(fetchPayment).mockResolvedValue(captured);
+      const raw = JSON.stringify({
+        event,
+        payload: { payment: { entity: { id: "pay_captured" } } },
       });
-    expect((await webhook(req(raw + " "))).status).toBe(400);
-    expect((await webhook(req())).status).toBe(200);
-    expect((await webhook(req())).status).toBe(200);
-    expect((await payment()).status).toBe("verified");
-  });
+      const signature = createHmac(
+        "sha256",
+        process.env.RAZORPAY_WEBHOOK_SECRET!,
+      )
+        .update(raw)
+        .digest("hex");
+      const req = (body = raw) =>
+        new Request("https://hostel.example/api/razorpay/webhook", {
+          method: "POST",
+          headers: { "x-razorpay-signature": signature },
+          body,
+        });
+      expect((await webhook(req(raw + " "))).status).toBe(400);
+      expect((await webhook(req())).status).toBe(200);
+      expect((await webhook(req())).status).toBe(200);
+      expect((await payment()).status).toBe("verified");
+    },
+  );
   it("protects pending dues from editing and rejects stale admin revisions", async () => {
     shared.user.id = "admin";
     shared.user.role = "admin";
@@ -424,15 +417,96 @@ describe("Migrated PostgreSQL ledger and API integration", () => {
   });
   it("enforces unique pending payments at the database boundary", async () => {
     await expect(
-      db
-        .insert(schema.payments)
-        .values({
-          id: "duplicate",
-          userId: "student-a",
-          feeDueId: "fee-1",
-          amount: 50000,
-          method: "manual_upi",
-        }),
+      db.insert(schema.payments).values({
+        id: "duplicate",
+        userId: "student-a",
+        feeDueId: "fee-1",
+        amount: 50000,
+        method: "manual_upi",
+      }),
     ).rejects.toThrow();
   });
+});
+
+it("cancels only owned active attempts, retries with a fresh order, and reconciles late capture once", async () => {
+  shared.user.id = "student-b";
+  expect(
+    (await cancel(request("/api/payments/cancel", { orderId: "order_123" })))
+      .status,
+  ).toBe(404);
+  shared.user.id = "student-a";
+  expect(
+    (await cancel(request("/api/payments/cancel", { orderId: "order_123" })))
+      .status,
+  ).toBe(200);
+  expect((await payment()).attemptStatus).toBe("cancelled");
+  vi.mocked(createOrder).mockResolvedValue({
+    id: "order_fresh",
+    amount: 50000,
+    currency: "INR",
+  });
+  expect(
+    (await order(request("/api/payments/order", { feeDueId: "fee-1" }))).status,
+  ).toBe(200);
+  expect(createOrder).toHaveBeenCalledOnce();
+  await settleProviderPayment(captured);
+  await settleProviderPayment(captured);
+  await cancel(request("/api/payments/cancel", { orderId: "order_123" }));
+  expect((await payment()).status).toBe("verified");
+  await settleProviderPayment({
+    ...captured,
+    id: "pay_fresh",
+    order_id: "order_fresh",
+  });
+  const rows = await db.select().from(schema.payments);
+  expect(rows.filter((p) => p.status === "verified")).toHaveLength(1);
+  expect(
+    rows.find((p) => p.razorpayOrderId === "order_fresh")?.reviewNote,
+  ).toContain("refund");
+});
+it("expires at fifteen minutes, preserves captures, and accepts late success", async () => {
+  await db
+    .update(schema.payments)
+    .set({ createdAt: new Date(Date.now() - 14 * 60 * 1000) });
+  await expireProviderAttempts("student-a");
+  expect((await payment()).status).toBe("pending");
+  await db
+    .update(schema.payments)
+    .set({ createdAt: new Date(Date.now() - 16 * 60 * 1000) });
+  await expireProviderAttempts("student-a");
+  expect((await payment()).attemptStatus).toBe("abandoned");
+  await settleProviderPayment(captured);
+  await expireProviderAttempts("student-a");
+  expect((await payment()).attemptStatus).toBe("paid");
+  expect((await payment()).status).toBe("verified");
+});
+
+it("failure webhooks mark attempts failed but cannot downgrade a provider capture", async () => {
+  const failed = { ...captured, status: "failed", captured: false };
+  vi.mocked(fetchPayment).mockResolvedValue(failed);
+  vi.mocked(fetchOrderPayments).mockResolvedValue([failed]);
+  const raw = JSON.stringify({
+    event: "payment.failed",
+    payload: { payment: { entity: { id: failed.id } } },
+  });
+  const req = () =>
+    new Request("https://hostel.example/api/razorpay/webhook", {
+      method: "POST",
+      body: raw,
+      headers: {
+        "x-razorpay-signature": createHmac(
+          "sha256",
+          process.env.RAZORPAY_WEBHOOK_SECRET!,
+        )
+          .update(raw)
+          .digest("hex"),
+      },
+    });
+  expect((await webhook(req())).status).toBe(200);
+  expect((await payment()).attemptStatus).toBe("failed");
+  vi.mocked(fetchOrderPayments).mockResolvedValue([failed, captured]);
+  expect((await webhook(req())).status).toBe(200);
+  expect((await payment()).attemptStatus).toBe("paid");
+  expect((await webhook(req())).status).toBe(200);
+  expect((await payment()).status).toBe("verified");
 });

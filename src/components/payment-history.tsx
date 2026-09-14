@@ -45,9 +45,11 @@ export function PaymentHistory({
             <div className="mt-2 sm:hidden">
               <StatusBadge
                 status={
-                  p.status === "pending" && p.method === "razorpay"
+                  p.method === "razorpay" &&
+                  !p.attemptStatus &&
+                  p.status === "pending"
                     ? "processing"
-                    : p.status
+                    : (p.attemptStatus ?? p.status)
                 }
               />
             </div>
@@ -57,9 +59,11 @@ export function PaymentHistory({
             <div className="mt-1.5 hidden sm:block">
               <StatusBadge
                 status={
-                  p.status === "pending" && p.method === "razorpay"
+                  p.method === "razorpay" &&
+                  !p.attemptStatus &&
+                  p.status === "pending"
                     ? "processing"
-                    : p.status
+                    : (p.attemptStatus ?? p.status)
                 }
               />
             </div>

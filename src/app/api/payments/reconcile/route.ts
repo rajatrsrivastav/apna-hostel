@@ -8,13 +8,14 @@ import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
 import { fetchOrderPayments } from "@/lib/razorpay";
-import { settleProviderPayment } from "@/lib/ledger";
+import { expireProviderAttempts, settleProviderPayment } from "@/lib/ledger";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/reconcile", 20);
   const { paymentId } = z
     .object({ paymentId: idSchema })
     .parse(await jsonBody(req));
+  await expireProviderAttempts(user.id);
   const [record] = await getDb()
     .select()
     .from(payments)

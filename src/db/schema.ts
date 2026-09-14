@@ -190,6 +190,14 @@ export const payments = pgTable(
     amount: integer("amount").notNull(),
     method: methodEnum("method").notNull(),
     status: statusEnum("status").default("pending").notNull(),
+    attemptStatus: text("attempt_status").$type<
+      | "checkout_started"
+      | "pending"
+      | "paid"
+      | "failed"
+      | "cancelled"
+      | "abandoned"
+    >(),
     razorpayOrderId: text("razorpay_order_id").unique(),
     razorpayPaymentId: text("razorpay_payment_id").unique(),
     screenshotPublicId: text("screenshot_public_id").unique(),

@@ -101,3 +101,22 @@ it("Google-session logout deletes the server session and clears its cookie", asy
   expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
   expect(await context.internalAdapter.findSession(session!.token)).toBeNull();
 });
+
+it("supports a trimmed case-insensitive admin allowlist and overrides the legacy email", async () => {
+  process.env.ADMIN_EMAILS =
+    " FIRST@example.test, ,second@example.test,invalid ";
+  const { configuredRole } = await import("@/lib/env");
+  expect(
+    configuredRole({ email: "first@EXAMPLE.test", emailVerified: true }),
+  ).toBe("admin");
+  expect(
+    configuredRole({ email: " second@example.test ", emailVerified: true }),
+  ).toBe("admin");
+  expect(
+    configuredRole({ email: "second@example.test", emailVerified: false }),
+  ).toBe("student");
+  expect(
+    configuredRole({ email: "outsider@example.test", emailVerified: true }),
+  ).toBe("student");
+  delete process.env.ADMIN_EMAILS;
+});

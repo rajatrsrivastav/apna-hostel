@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { feeDues, payments } from "@/db/schema";
 import { AppError } from "./errors";
@@ -38,7 +38,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
   if (!record)
     throw new AppError("Order not yet recorded. Retry notification.", 503);
   return db.transaction(async (tx) => {
-    await lockFee(tx, record.feeDueId);
+    const fee = await lockFee(tx, record.feeDueId);
     const [payment] = await tx
       .select()
       .from(payments)
@@ -49,7 +49,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       payment.method !== "razorpay"
     )
       throw new AppError("Payment amount does not match the order.", 409);
-    if (payment.status === "verified") {
+    if (payment.status === "verified" || payment.attemptStatus === "paid") {
       if (
         payment.razorpayPaymentId !== provider.id &&
         provider.status === "captured"
@@ -63,24 +63,62 @@ export async function settleProviderPayment(provider: ProviderPayment) {
         .update(payments)
         .set({
           status: "failed",
+          attemptStatus: "failed",
           reviewNote: "Online payment failed. You can try again.",
         })
         .where(eq(payments.id, payment.id))
         .returning();
       return failed;
     }
-    if (provider.status !== "captured" || provider.captured === false)
+    if (provider.status !== "captured" || provider.captured === false) {
+      if (provider.status === "authorized" && payment.status === "pending") {
+        await tx
+          .update(payments)
+          .set({ attemptStatus: "pending" })
+          .where(eq(payments.id, payment.id));
+      }
       return payment;
+    }
+    // Record real excess captures for office refund review, without crediting rent twice.
+    const remaining = await feeBalance(tx, fee);
+    const excess = payment.amount > remaining;
     const [updated] = await tx
       .update(payments)
       .set({
-        status: "verified",
+        status: excess ? "rejected" : "verified",
+        attemptStatus: "paid",
         razorpayPaymentId: provider.id,
-        reviewNote: null,
+        reviewNote: excess
+          ? "Payment captured after the fee balance changed. Office refund review required; no duplicate rent credit applied."
+          : null,
         reviewedAt: new Date(),
       })
       .where(eq(payments.id, payment.id))
       .returning();
     return updated;
   });
+}
+
+// Conditional updates cannot overwrite a capture, even when expiry races a webhook.
+export async function expireProviderAttempts(
+  userId: string,
+  db: ReturnType<typeof getDb> | Transaction = getDb(),
+  feeDueId?: string,
+) {
+  await db
+    .update(payments)
+    .set({
+      status: "failed",
+      attemptStatus: "abandoned",
+      reviewNote: "Payment checkout expired. You can try again.",
+    })
+    .where(
+      and(
+        eq(payments.userId, userId),
+        feeDueId ? eq(payments.feeDueId, feeDueId) : undefined,
+        eq(payments.method, "razorpay"),
+        eq(payments.status, "pending"),
+        lte(payments.createdAt, new Date(Date.now() - 15 * 60 * 1000)),
+      ),
+    );
 }
