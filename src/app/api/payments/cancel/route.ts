@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { expireProviderAttempts, lockFee } from "@/lib/ledger";
+import { notifyPaymentIncomplete } from "@/lib/notifications";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   const { orderId } = z
@@ -38,5 +39,12 @@ export const POST = mutation(async (req) => {
       await tx.select().from(payments).where(eq(payments.id, record.id))
     )[0];
   });
+  if (payment.attemptStatus === "cancelled") {
+    try {
+      await notifyPaymentIncomplete(record.id, "cancelled");
+    } catch (err) {
+      console.error("[Notification] notifyPaymentIncomplete failed:", err);
+    }
+  }
   return Response.json({ status: payment.attemptStatus ?? payment.status });
 });

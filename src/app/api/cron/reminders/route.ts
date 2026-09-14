@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
-import { generateMonthlyRentWithIds } from "@/lib/rent";
-import { notifyRentGenerated } from "@/lib/notifications";
+import { sendOverdueReminders } from "@/lib/notifications";
 import { errorResponse } from "@/lib/errors";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   const provided = Buffer.from(req.headers.get("authorization") || "");
@@ -14,13 +15,11 @@ export async function GET(req: Request) {
     !timingSafeEqual(provided, expected)
   )
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
-    const { count, createdIds } = await generateMonthlyRentWithIds();
-    for (const id of createdIds) {
-      await notifyRentGenerated(id).catch(() => {});
-    }
+    const stats = await sendOverdueReminders();
     return Response.json(
-      { created: count },
+      { ok: true, ...stats },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {

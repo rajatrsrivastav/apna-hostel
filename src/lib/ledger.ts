@@ -5,6 +5,10 @@ import { feeDues, payments } from "@/db/schema";
 import { AppError } from "./errors";
 import { balance } from "./money";
 import type { ProviderPayment } from "./razorpay";
+import {
+  notifyPaymentSuccess,
+  notifyPaymentIncomplete,
+} from "./notifications";
 export type Transaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
@@ -37,7 +41,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     .where(eq(payments.razorpayOrderId, provider.order_id));
   if (!record)
     throw new AppError("Order not yet recorded. Retry notification.", 503);
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const fee = await lockFee(tx, record.feeDueId);
     const [payment] = await tx
       .select()
@@ -97,6 +101,22 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       .returning();
     return updated;
   });
+
+  if (result.status === "verified" && result.attemptStatus === "paid") {
+    try {
+      await notifyPaymentSuccess(result.id);
+    } catch (err) {
+      console.error("[Notification] notifyPaymentSuccess failed:", err);
+    }
+  } else if (result.status === "failed" && result.attemptStatus === "failed") {
+    try {
+      await notifyPaymentIncomplete(result.id, "failed");
+    } catch (err) {
+      console.error("[Notification] notifyPaymentIncomplete failed:", err);
+    }
+  }
+
+  return result;
 }
 
 // Conditional updates cannot overwrite a capture, even when expiry races a webhook.

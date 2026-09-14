@@ -13,7 +13,7 @@ export function indiaMonth(now = new Date()) {
 }
 // Lock users before fees everywhere approval and rent interact. Unpaid months
 // remain separate dues: carry-forward is a sum, never another copy of the debt.
-export async function generateMonthlyRent(
+export async function generateMonthlyRentWithIds(
   userId?: string,
   now = new Date(),
   executor: Pick<Transaction, "execute"> = getDb(),
@@ -33,5 +33,17 @@ export async function generateMonthlyRent(
       date_trunc('month', ${now.toISOString()}::timestamptz AT TIME ZONE 'Asia/Kolkata'), interval '1 month'
     ) m(month)
     ON CONFLICT (user_id, rent_month) DO NOTHING RETURNING id`);
-  return result.rows.length;
+  return {
+    count: result.rows.length,
+    createdIds: (result.rows as unknown as { id: string }[]).map((r) => r.id),
+  };
+}
+
+export async function generateMonthlyRent(
+  userId?: string,
+  now = new Date(),
+  executor: Pick<Transaction, "execute"> = getDb(),
+) {
+  const { count } = await generateMonthlyRentWithIds(userId, now, executor);
+  return count;
 }

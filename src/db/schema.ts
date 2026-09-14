@@ -232,3 +232,29 @@ export const payments = pgTable(
       .where(sql`${t.status} = 'pending'`),
   ],
 );
+
+export const notificationLogs = pgTable(
+  "notification_logs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    feeDueId: text("fee_due_id").references(() => feeDues.id, {
+      onDelete: "cascade",
+    }),
+    paymentId: text("payment_id").references(() => payments.id, {
+      onDelete: "cascade",
+    }),
+    type: text("type").notNull(),
+    recipient: text("recipient").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("notification_user_idx").on(t.userId),
+    index("notification_fee_idx").on(t.feeDueId),
+    index("notification_payment_idx").on(t.paymentId),
+    index("notification_type_sent_idx").on(t.type, t.sentAt),
+  ],
+);
+
