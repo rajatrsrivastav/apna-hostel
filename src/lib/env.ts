@@ -11,9 +11,11 @@ export function authEnv() {
   return schema.parse(process.env);
 }
 export function configuredRole(user: {
+  id?: string;
   email: string;
   emailVerified: boolean;
 }): "admin" | "student" {
+  if (user.id === REVIEW_USER_ID) return "student";
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   return email &&
     user.emailVerified &&
@@ -25,4 +27,10 @@ export function requiredEnv(key: string) {
   const value = process.env[key];
   if (!value) throw new Error(`Missing server configuration: ${key}`);
   return value;
+}
+
+// Reserved test identity, never a credential or an existing student account.
+export const REVIEW_USER_ID = "razorpay-review-test-student";
+export function reviewLoginEnabled() {
+  return process.env.ENABLE_RAZORPAY_REVIEW_LOGIN === "true";
 }

@@ -4,12 +4,16 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getAuth } from "./auth";
 import { getDb } from "@/db";
-import { users, studentProfiles } from "@/db/schema";
-import { configuredRole } from "./env";
+import { users, studentProfiles, sessions } from "@/db/schema";
+import { configuredRole, REVIEW_USER_ID, reviewLoginEnabled } from "./env";
 import { AppError } from "./errors";
 export async function currentUser() {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) return null;
+  if (session.user.id === REVIEW_USER_ID && !reviewLoginEnabled()) {
+    await getDb().delete(sessions).where(eq(sessions.userId, REVIEW_USER_ID));
+    return null;
+  }
   const [user] = await getDb()
     .select()
     .from(users)
