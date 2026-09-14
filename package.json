@@ -1,0 +1,62 @@
+{
+  "name": "apna-hostel",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed-admin.ts",
+    "db:studio": "drizzle-kit studio",
+    "test:smoke": "node scripts/smoke.mjs",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.4",
+    "@radix-ui/react-slot": "^1.3.3",
+    "better-auth": "^1.7.4",
+    "class-variance-authority": "^0.7.1",
+    "cloudinary": "^2.11.0",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "lucide-react": "^1.45.0",
+    "next": "^16.3.5",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.5.1",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.5",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.0"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "monthly_rent" integer DEFAULT 100000 NOT NULL;
