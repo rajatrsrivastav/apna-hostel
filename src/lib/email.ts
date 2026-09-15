@@ -491,3 +491,44 @@ Please retry or contact the office: ${payUrl}
     text,
   };
 }
+
+export function buildStudentApprovedEmail({
+  studentName,
+  dashboardUrl,
+}: {
+  studentName: string;
+  dashboardUrl: string;
+}) {
+  const title = `Your entry has been approved ✅`;
+  const subtitle = `Hi ${studentName}, your entry has been approved by the admin.`;
+
+  const contentHtml = `
+    <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 16px; padding: 20px; text-align: center;">
+      <div style="font-size: 18px; font-weight: 700; color: #047857; margin: 6px 0 12px 0;">Welcome to Apna Hostel!</div>
+      <p style="font-size: 14px; color: #065f46; margin: 0; line-height: 1.5;">
+        You can now open your dashboard and manage your monthly rent payments.
+      </p>
+    </div>
+  `;
+
+  const text = `
+Hi ${studentName},
+
+Your entry has been approved by the admin.
+You can now open your dashboard and manage your monthly rent payments.
+
+Open Dashboard: ${dashboardUrl}
+`;
+
+  return {
+    subject: title,
+    html: wrapEmailTemplate({
+      title,
+      subtitle,
+      contentHtml,
+      buttonText: "Open Dashboard",
+      buttonUrl: dashboardUrl,
+    }),
+    text,
+  };
+}

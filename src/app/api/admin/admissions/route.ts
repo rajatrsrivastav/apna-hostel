@@ -19,7 +19,7 @@ export const POST = mutation(async (req) => {
       revision: z.number().int().nonnegative(),
     })
     .parse(await jsonBody(req));
-  await getDb().transaction(async (tx) => {
+  const result = await getDb().transaction(async (tx) => {
     const [student] = await tx
       .select()
       .from(users)
@@ -33,7 +33,7 @@ export const POST = mutation(async (req) => {
       .where(eq(studentProfiles.userId, student.id));
     if (!profile || student.approvalStatus === "onboarding_incomplete")
       throw new AppError("Student must complete onboarding first.", 409);
-    if (student.approvalStatus === input.decision) return;
+    if (student.approvalStatus === input.decision) return { student, newlyAccepted: false };
     if (student.approvalRevision !== input.revision)
       throw new AppError(
         "This student was already reviewed. Reload first.",
@@ -58,6 +58,23 @@ export const POST = mutation(async (req) => {
       .where(eq(users.id, student.id));
     if (input.decision === "accepted")
       await generateMonthlyRent(student.id, now, tx);
+
+    return { student, newlyAccepted: input.decision === "accepted" };
   });
+
+  if (result?.newlyAccepted) {
+    const { sendEmail, buildStudentApprovedEmail } = await import("@/lib/email");
+    const dashboardUrl = new URL("/student", req.url).toString();
+    
+    sendEmail({
+      to: result.student.email,
+      ...buildStudentApprovedEmail({
+        studentName: result.student.name,
+        dashboardUrl,
+      }),
+    }).catch((err) => {
+      console.error("[Admissions] Failed to send approval email:", err);
+    });
+  }
   return Response.json({ ok: true });
 });
