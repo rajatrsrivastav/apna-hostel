@@ -15,7 +15,7 @@ import {
 import { Brand } from "./brand";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
-import { useAction, Feedback } from "./form-kit";
+import { useAction, Feedback, Spinner } from "./form-kit";
 const adminNav = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/pending", label: "Pending students", icon: Users },
@@ -121,7 +121,7 @@ export function Shell({
                 })
               }
             >
-              <LogOut className="size-4 text-muted-foreground" />
+              {action.busy ? <Spinner /> : <LogOut className="size-4 text-muted-foreground" />}
             </button>
           </div>
           <Feedback error={action.error} />
@@ -155,7 +155,7 @@ export function Shell({
               })
             }
           >
-            <LogOut className="size-4" />
+            {action.busy ? <Spinner /> : <LogOut className="size-4" />}
           </button>
         </header>
         <div className="px-5 lg:hidden">

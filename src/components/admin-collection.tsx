@@ -101,8 +101,8 @@ export function AdminCollection({
             />
           </Field>
           <div className="flex gap-2">
-            <Button disabled={action.busy}>
-              {action.busy ? <Spinner /> : null}Save collection
+            <Button pending={action.busy} pendingText="Loading...">
+              Save collection
             </Button>
             <Button
               type="button"

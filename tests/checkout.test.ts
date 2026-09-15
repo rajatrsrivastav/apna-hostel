@@ -19,6 +19,24 @@ vi.mock("react", async (original) => ({
       },
     ];
   },
+  useTransition: () => {
+    const index = state.cursor++;
+    if (!(index in state.values)) state.values[index] = false;
+    return [
+      state.values[index],
+      (cb: () => void | Promise<void>) => {
+        state.values[index] = true;
+        const res = cb();
+        if (res instanceof Promise) {
+          res.finally(() => {
+            state.values[index] = false;
+          });
+        } else {
+          state.values[index] = false;
+        }
+      },
+    ];
+  },
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: state.refresh, push: state.push }),
@@ -99,6 +117,7 @@ afterEach(() => {
 });
 it("dismissal persists cancellation and restores both enabled payment options", async () => {
   await buttons(render())[0].props.onClick!();
+  await vi.advanceTimersByTimeAsync(0);
   options.modal.ondismiss();
   await vi.advanceTimersByTimeAsync(0);
   expect(
@@ -111,6 +130,7 @@ it("dismissal persists cancellation and restores both enabled payment options", 
 });
 it("success followed by dismissal verifies on the server without cancellation", async () => {
   await buttons(render())[0].props.onClick!();
+  await vi.advanceTimersByTimeAsync(0);
   options.handler({
     razorpay_order_id: "order_test",
     razorpay_payment_id: "pay_test",
@@ -125,6 +145,7 @@ it("success followed by dismissal verifies on the server without cancellation", 
 });
 it("a checkout left open releases the UI after fifteen minutes", async () => {
   await buttons(render())[0].props.onClick!();
+  await vi.advanceTimersByTimeAsync(0);
   await vi.advanceTimersByTimeAsync(900000);
   expect(buttons(render()).every((b) => !b.props.disabled)).toBe(true);
   expect(state.refresh).toHaveBeenCalled();

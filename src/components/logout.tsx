@@ -9,7 +9,8 @@ export function Logout() {
     <div>
       <Button
         variant="outline"
-        disabled={action.busy}
+        pending={action.busy}
+        pendingText="Logging out..."
         onClick={() =>
           action.run(async () => {
             const result = await authClient.signOut();
@@ -18,6 +19,7 @@ export function Logout() {
                 result.error.message || "Logout failed. Please try again.",
               );
             window.location.replace("/login");
+            await new Promise(() => {}); // keep loading state until navigation completes
           })
         }
       >

@@ -396,7 +396,7 @@ describe("Unified Google role routing", () => {
     await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
       "REDIRECT:/onboarding",
     );
-    await profile(req({ fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician" }));
+    await profile(req({ fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician", year: "1st Year" }));
     await expect(Login({ searchParams: Promise.resolve({}) })).rejects.toThrow(
       "REDIRECT:/approval",
     );
@@ -505,7 +505,7 @@ describe("Per-student monthly fee", () => {
 
 
 describe("First sign-in onboarding", () => {
-  const details = { fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician" };
+  const details = { fullName: "Student Name", phone: "9876543210", course: "ITI", trade: "Electrician", year: "1st Year" };
   it("requires all four details and saves the session user's profile before approval", async () => {
     shared.userId = "student";
     await expect(Approval()).rejects.toThrow("REDIRECT:/onboarding");
@@ -515,7 +515,8 @@ describe("First sign-in onboarding", () => {
     expect(await db.select().from(schema.studentProfiles)).toHaveLength(0);
     expect((await profile(req({ ...details, email: "spoof@example.test", userId: "other", approvalStatus: "accepted" }))).status).toBe(200);
     const [saved] = await db.select().from(schema.studentProfiles);
-    expect(saved).toMatchObject({ ...details, userId: "student", studyYear: "" });
+    const { year, ...profileDetails } = details;
+    expect(saved).toMatchObject({ ...profileDetails, userId: "student", studyYear: "1st Year" });
     const user = await currentUser();
     expect(user).toMatchObject({ email: "student@example.test", approvalStatus: "pending", hasProfile: true });
     await expect(Onboarding()).rejects.toThrow("REDIRECT:/approval");
@@ -547,7 +548,7 @@ it("lists only submitted pending profiles and accepts custom course names", asyn
   // A legacy pending user without a profile must also stay hidden.
   await db.update(schema.users).set({ approvalStatus: "pending" }).where(eq(schema.users.id, "other"));
   shared.userId = "student";
-  expect((await profile(req({ fullName: "Custom Student", phone: "9876543210", course: "  Bachelor of Arts  ", trade: "History" }))).status).toBe(200);
+  expect((await profile(req({ fullName: "Custom Student", phone: "9876543210", course: "  Bachelor of Arts  ", trade: "History", year: "2nd Year" }))).status).toBe(200);
   const rows = await pendingStudents();
   expect(rows).toHaveLength(1);
   expect(rows[0].user).toMatchObject({ id: "student", email: "student@example.test", approvalStatus: "pending" });

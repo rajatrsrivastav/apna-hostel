@@ -6,7 +6,8 @@ it("migrates existing courses and only resets pending students without profiles"
   const client = new PGlite();
   try {
     const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8"));
-    for (const entry of journal.entries.slice(0, -1)) {
+    const targetIndex = journal.entries.findIndex((e: any) => e.tag === "0006_onboarding_status_and_course");
+    for (const entry of journal.entries.slice(0, targetIndex)) {
       await client.exec(readFileSync(`drizzle/${entry.tag}.sql`, "utf8"));
     }
     await client.exec(`

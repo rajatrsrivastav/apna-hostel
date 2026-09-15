@@ -77,8 +77,8 @@ export function OnboardingForm({ name }: { name: string }) {
         />
       </Field>
       <Feedback error={action.error} />
-      <Button size="lg" className="w-full" disabled={action.busy}>
-        {action.busy ? <Spinner /> : <ArrowRight />}Let’s go / आगे बढ़ें
+      <Button size="lg" className="w-full" pending={action.busy} pendingText="Loading...">
+        <ArrowRight />Let’s go / आगे बढ़ें
       </Button>
     </form>
   );

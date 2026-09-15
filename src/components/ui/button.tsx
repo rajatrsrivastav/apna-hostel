@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Loader2 } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
@@ -23,15 +24,30 @@ export function Button({
   variant,
   size,
   asChild = false,
+  pending = false,
+  pendingText = "Loading...",
+  children,
+  disabled,
   ...props
 }: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
+  VariantProps<typeof buttonVariants> & { asChild?: boolean; pending?: boolean; pendingText?: React.ReactNode }) {
   const Comp = asChild ? Slot : "button";
   return (
     <Comp
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled || pending}
+      aria-busy={pending}
       {...props}
-    />
+    >
+      {pending && !asChild ? (
+        <>
+          <Loader2 className="animate-spin shrink-0" aria-hidden="true" />
+          {pendingText}
+        </>
+      ) : (
+        children
+      )}
+    </Comp>
   );
 }

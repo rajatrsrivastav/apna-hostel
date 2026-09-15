@@ -382,8 +382,8 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
                 />
               </span>
             </Field>
-            <Button className="w-full" size="lg" disabled={disabled}>
-              {action.busy ? <Spinner /> : <Upload />}Send for verification
+            <Button className="w-full" size="lg" pending={disabled} pendingText="Loading...">
+              <Upload />Send for verification
             </Button>
           </form>
         </Card>

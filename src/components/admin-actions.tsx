@@ -51,8 +51,8 @@ export function AddFee({ userId }: { userId: string }) {
             </Field>
           </div>
           <div className="flex gap-3">
-            <Button disabled={action.busy}>
-              {action.busy ? <Spinner /> : <Plus />}Save fee
+            <Button pending={action.busy} pendingText="Loading...">
+              <Plus />Save fee
             </Button>
             <Button
               type="button"
@@ -197,8 +197,8 @@ export function EditFee({ fee }: { fee: EditableFee }) {
             />
           </Field>
           <div className="flex gap-2">
-            <Button disabled={action.busy}>
-              {action.busy ? <Spinner /> : <Check />}Confirm
+            <Button pending={action.busy} pendingText="Loading...">
+              <Check />Confirm
             </Button>
             <Button
               type="button"
@@ -261,10 +261,11 @@ export function ReviewPayment({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="destructive"
-              disabled={action.busy || note.trim().length < 3}
+              pending={action.busy || note.trim().length < 3}
+              pendingText="Loading..."
               onClick={() => review("rejected")}
             >
-              {action.busy ? <Spinner /> : <X />}Confirm rejection
+              <X />Confirm rejection
             </Button>
             <Button variant="ghost" onClick={() => setRejecting(false)}>
               Cancel
@@ -275,10 +276,11 @@ export function ReviewPayment({
         <div className="flex gap-2">
           <Button
             className="flex-1"
-            disabled={action.busy || !hasScreenshot}
+            pending={action.busy || !hasScreenshot}
+            pendingText="Loading..."
             onClick={() => review("verified")}
           >
-            {action.busy ? <Spinner /> : <Check />}Approve
+            <Check />Approve
           </Button>
           <Button
             variant="destructive"
@@ -301,7 +303,8 @@ export function Reconcile({ id }: { id: string }) {
     <div className="space-y-3">
       <Button
         variant="outline"
-        disabled={action.busy}
+        pending={action.busy}
+        pendingText="Loading..."
         onClick={() =>
           action.run(async () => {
             const r = await api<{ status: string; message?: string }>(
@@ -317,7 +320,7 @@ export function Reconcile({ id }: { id: string }) {
           })
         }
       >
-        {action.busy ? <Spinner /> : <RefreshCw />}Check payment
+        <RefreshCw />Check payment
       </Button>
       <Feedback error={action.error} success={action.success} />
     </div>
@@ -379,8 +382,8 @@ export function MonthlyRent({
           Applies to future months. Use Edit fee below to change an existing
           month.
         </p>
-        <Button disabled={action.busy}>
-          {action.busy ? <Spinner /> : <Pencil />}Save monthly fee
+        <Button pending={action.busy} pendingText="Loading...">
+          <Pencil />Save monthly fee
         </Button>
       </form>
       <Feedback error={action.error} success={action.success} />

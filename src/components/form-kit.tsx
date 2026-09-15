@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 export function Field({
   label,
@@ -66,21 +66,21 @@ export async function api<T = { ok: boolean; message?: string }>(
   return result as T;
 }
 export function useAction() {
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [success, setSuccess] = useState("");
-  async function run(action: () => Promise<void>) {
+  const [busy, startTransition] = useTransition();
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  function run(action: () => Promise<void> | void) {
     if (busy) return;
-    setBusy(true);
     setError("");
     setSuccess("");
-    try {
-      await action();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Please try again.");
-    } finally {
-      setBusy(false);
-    }
+    startTransition(async () => {
+      try {
+        await action();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Please try again.");
+      }
+    });
   }
   return { busy, error, success, setSuccess, run };
 }
