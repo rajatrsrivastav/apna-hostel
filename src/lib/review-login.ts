@@ -67,12 +67,15 @@ async function reviewStudent(email: string) {
       .values({
         userId: user.id,
         fullName: "Cashfree TEST STUDENT",
-        phone: "",
+        phone: "9999999999",
         course: "ITI",
         trade: "Test",
         studyYear: "Test",
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: studentProfiles.userId,
+        set: { phone: "9999999999" },
+      });
     await tx.delete(payments).where(eq(payments.userId, user.id));
     await generateMonthlyRent(user.id, new Date(), tx);
     return user;

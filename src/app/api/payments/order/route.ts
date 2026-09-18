@@ -43,15 +43,22 @@ export const POST = mutation(async (req) => {
     // Cashfree expects order_amount in rupees (not paise)
     const orderAmountRupees = amount / 100;
     const returnUrl = `${requiredEnv("BETTER_AUTH_URL")}/payment-status?order_id={order_id}`;
+    const digitsOnly = (profile.phone || "").replace(/\D/g, "");
+    const customerPhone = /^[6-9]\d{9}$/.test(digitsOnly)
+      ? digitsOnly
+      : digitsOnly.length >= 10
+        ? digitsOnly.slice(-10)
+        : "9999999999";
+
     const order = await createOrder({
       order_id: orderId,
       order_amount: orderAmountRupees,
       order_currency: "INR",
       customer_details: {
-        customer_id: user.id,
-        customer_phone: profile.phone,
+        customer_id: user.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50),
+        customer_phone: customerPhone,
         customer_email: user.email,
-        customer_name: profile.fullName,
+        customer_name: profile.fullName || "Student",
       },
       order_meta: { return_url: returnUrl },
     });
