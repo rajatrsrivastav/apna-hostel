@@ -16,7 +16,7 @@ const config: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
+              "frame-ancestors 'self' https://*.cashfree.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
           },
           ...(process.env.NODE_ENV === "production"
             ? [

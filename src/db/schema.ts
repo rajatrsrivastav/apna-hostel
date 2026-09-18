@@ -20,7 +20,7 @@ export const approvalEnum = pgEnum("approval_status", [
   "rejected",
 ]);
 export const methodEnum = pgEnum("payment_method", [
-  "razorpay",
+  "cashfree",
   "manual_upi",
   "admin_manual",
 ]);
@@ -198,8 +198,8 @@ export const payments = pgTable(
       | "cancelled"
       | "abandoned"
     >(),
-    razorpayOrderId: text("razorpay_order_id").unique(),
-    razorpayPaymentId: text("razorpay_payment_id").unique(),
+    cashfreeOrderId: text("cashfree_order_id").unique(),
+    cashfreePaymentId: text("cashfree_payment_id").unique(),
     screenshotPublicId: text("screenshot_public_id").unique(),
     paymentDate: text("payment_date"),
     revision: integer("revision").default(0).notNull(),

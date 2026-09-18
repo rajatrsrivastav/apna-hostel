@@ -21,7 +21,7 @@ export const POST = mutation(async (req) => {
     .select()
     .from(payments)
     .where(
-      and(eq(payments.razorpayOrderId, orderId), eq(payments.userId, user.id)),
+      and(eq(payments.cashfreeOrderId, orderId), eq(payments.userId, user.id)),
     );
   if (!record) throw new AppError("Payment not found.", 404);
   const payment = await getDb().transaction(async (tx) => {

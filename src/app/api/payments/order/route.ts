@@ -8,7 +8,7 @@ import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
 import { expireProviderAttempts, feeBalance, lockFee } from "@/lib/ledger";
-import { createOrder } from "@/lib/razorpay";
+import { createOrder } from "@/lib/cashfree";
 import { requiredEnv } from "@/lib/env";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
@@ -39,8 +39,23 @@ export const POST = mutation(async (req) => {
       return existing;
     }
     const id = crypto.randomUUID();
-    const order = await createOrder(amount, id);
-    if (order.amount !== amount || order.currency !== "INR")
+    const orderId = `apna_${id.replace(/-/g, "")}`;
+    // Cashfree expects order_amount in rupees (not paise)
+    const orderAmountRupees = amount / 100;
+    const returnUrl = `${requiredEnv("BETTER_AUTH_URL")}/payment-status?order_id={order_id}`;
+    const order = await createOrder({
+      order_id: orderId,
+      order_amount: orderAmountRupees,
+      order_currency: "INR",
+      customer_details: {
+        customer_id: user.id,
+        customer_phone: profile.phone,
+        customer_email: user.email,
+        customer_name: profile.fullName,
+      },
+      order_meta: { return_url: returnUrl },
+    });
+    if (order.order_currency !== "INR")
       throw new AppError("Could not create the correct payment order.", 502);
     const [record] = await tx
       .insert(payments)
@@ -49,16 +64,16 @@ export const POST = mutation(async (req) => {
         userId: user.id,
         feeDueId: fee.id,
         amount,
-        method: "razorpay",
+        method: "cashfree",
         attemptStatus: "checkout_started",
-        razorpayOrderId: order.id,
+        cashfreeOrderId: order.order_id,
       })
       .returning();
-    return record;
+    return { ...record, paymentSessionId: order.payment_session_id };
   });
   return Response.json({
-    key: requiredEnv("RAZORPAY_KEY_ID"),
-    orderId: payment.razorpayOrderId,
+    paymentSessionId: "paymentSessionId" in payment ? payment.paymentSessionId : undefined,
+    orderId: payment.cashfreeOrderId,
     amount: payment.amount,
     expiresAt: new Date(
       payment.createdAt.getTime() + 15 * 60 * 1000,

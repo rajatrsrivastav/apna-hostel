@@ -31,7 +31,7 @@ export const POST = mutation(async (req) => {
         userId: user.id,
         feeDueId: fee.id,
         amount,
-        method: "razorpay",
+        method: "cashfree",
         status: "verified",
         attemptStatus: "paid",
         paymentDate: todayIndia(),

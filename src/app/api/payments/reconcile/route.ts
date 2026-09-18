@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
-import { fetchOrderPayments } from "@/lib/razorpay";
+import { fetchOrderPayments } from "@/lib/cashfree";
 import { expireProviderAttempts, settleProviderPayment } from "@/lib/ledger";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
@@ -22,16 +22,16 @@ export const POST = mutation(async (req) => {
     .where(eq(payments.id, paymentId));
   if (!record || (record.userId !== user.id && user.role !== "admin"))
     throw new AppError("Payment not found.", 404);
-  if (!record.razorpayOrderId)
+  if (!record.cashfreeOrderId)
     throw new AppError("This is not an online payment.");
-  const attempts = await fetchOrderPayments(record.razorpayOrderId);
-  const captured = attempts.find((p) => p.status === "captured");
+  const attempts = await fetchOrderPayments(record.cashfreeOrderId);
+  const captured = attempts.find((p) => p.status === "SUCCESS");
   if (captured) {
     const updated = await settleProviderPayment(captured);
     return Response.json({ status: updated.status });
   }
-  const failed = attempts.find((p) => p.status === "failed");
-  if (failed && !attempts.some((p) => p.status === "authorized")) {
+  const failed = attempts.find((p) => p.status === "FAILED");
+  if (failed && !attempts.some((p) => p.status === "PENDING")) {
     const updated = await settleProviderPayment(failed);
     return Response.json({
       status: updated.status,

@@ -28,7 +28,7 @@ export function feeStatus(
 }
 
 export function paymentMethodLabel(method: string) {
-  return method === "razorpay"
+  return method === "cashfree"
     ? "Online Payment"
     : method === "admin_manual"
       ? "Paid to admin"

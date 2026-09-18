@@ -18,59 +18,7 @@ import { Input } from "./ui/input";
 import { api, Feedback, Field, Spinner, useAction } from "./form-kit";
 import { dateLabel, money } from "@/lib/money";
 import { todayIndia } from "@/lib/validation";
-/*
- * Razorpay implementation commented out during migration to Cashfree Payments.
- * Retained for reference when integrating the Cashfree Checkout SDK.
-type CheckoutResult = {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-};
-type RazorpayOptions = {
-  key: string;
-  order_id: string;
-  amount: number;
-  currency: string;
-  name: string;
-  description: string;
-  prefill: { name: string; email: string; contact: string };
-  theme: { color: string };
-  handler: (result: CheckoutResult) => void;
-  modal: { ondismiss: () => void };
-};
-declare global {
-  interface Window {
-    Razorpay?: new (options: RazorpayOptions) => {
-      open: () => void;
-      close: () => void;
-      on: (event: string, callback: () => void) => void;
-    };
-  }
-}
-let scriptPromise: Promise<void> | undefined;
-async function loadCheckout() {
-  if (window.Razorpay) return;
-  if (!scriptPromise)
-    scriptPromise = new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => {
-        script.remove();
-        scriptPromise = undefined;
-        reject(
-          new Error("Could not load payment window. Check your connection."),
-        );
-      };
-      document.body.appendChild(script);
-    });
-  await scriptPromise;
-}
-function remainingCheckoutMs(expiresAt: string) {
-  return Math.max(0, new Date(expiresAt).getTime() - Date.now());
-}
-*/
+import { load } from "@cashfreepayments/cashfree-js";
 
 export type PayableFee = {
   id: string;
@@ -79,15 +27,20 @@ export type PayableFee = {
   outstanding: number;
   pending?: { id: string; method: string };
 };
+
 export function Checkout({ dues }: { dues: PayableFee[] }) {
   const [selected, setSelected] = useState(dues[0]?.id ?? ""),
-    [method, setMethod] = useState<"choose" | "manual" | "review">("choose"),
+    [method, setMethod] = useState<"choose" | "manual">("choose"),
     [submitted, setSubmitted] = useState("");
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState("");
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const action = useAction(),
     router = useRouter();
+    
   useEffect(() => {
+    // Polling logic for pending verification (manual UPI) or after checkout finishes
+    if (checkoutOpen) return;
     const timer = setInterval(() => router.refresh(), 15000);
     const refresh = () => router.refresh();
     window.addEventListener("focus", refresh);
@@ -95,7 +48,8 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [router]);
+  }, [router, checkoutOpen]);
+
   const fee = dues.find((f) => f.id === selected);
   if (submitted)
     return (
@@ -129,87 +83,61 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       </Card>
     );
 
-  /*
-   * Razorpay checkout call commented out during migration to Cashfree.
-  async function onlineRazorpay() {
-    await loadCheckout();
-    const order = await api<{
-      key: string;
-      orderId: string;
-      expiresAt: string;
-      amount: number;
-      name: string;
-      email: string;
-      phone: string;
-    }>("/api/payments/order", { feeDueId: fee!.id });
-    if (!window.Razorpay)
-      throw new Error("Payment window is unavailable. Please reload.");
-    let succeeded = false;
-    let expiryTimer: ReturnType<typeof setTimeout>;
-    const cancel = async () => {
-      const result = await api<{ status: string }>("/api/payments/cancel", {
-        orderId: order.orderId,
-      });
-      setMethod("choose");
-      if (result.status === "abandoned")
-        action.setSuccess("Payment checkout expired. You can try again.");
-      if (result.status === "cancelled")
-        action.setSuccess("Payment cancelled. You can try again.");
-      router.refresh();
-    };
-    const checkout = new window.Razorpay({
-      key: order.key,
-      order_id: order.orderId,
-      amount: order.amount,
-      currency: "INR",
-      name: "Apna Hostel",
-      description: fee!.label,
-      prefill: { name: order.name, email: order.email, contact: order.phone },
-      theme: { color: "#28654c" },
-      handler: (result) => {
-        succeeded = true;
-        clearTimeout(expiryTimer);
-        setCheckoutOpen(false);
-        action.run(async () => {
-          const payment = await api<{ status: string; id: string }>(
-            "/api/payments/verify",
-            result,
-          );
-          router.push(`/receipts/${payment.id}`);
-          router.refresh();
-        });
-      },
-      modal: {
-        ondismiss: () => {
-          clearTimeout(expiryTimer);
-          setCheckoutOpen(false);
-          if (!succeeded) void action.run(cancel);
-        },
-      },
-    });
-    checkout.on("payment.failed", () => {
-      action.setSuccess(
-        "Payment was not completed. You can retry checkout. If money was deducted, check Payments first.",
-      );
-    });
+  async function onlineCashfree() {
+    // Use sandbox mode unconditionally as per requirements for now. 
+    // In production, this would read from a NEXT_PUBLIC env var.
+    const cashfree = await load({ mode: "sandbox" });
+    
     setCheckoutOpen(true);
+    let orderIdToVerify = "";
+    
     try {
-      checkout.open();
-      expiryTimer = setTimeout(() => {
-        if (succeeded) return;
-        checkout.close();
-        setCheckoutOpen(false);
+      const order = await api<{
+        paymentSessionId: string;
+        orderId: string;
+      }>("/api/payments/order", { feeDueId: fee!.id });
+      
+      orderIdToVerify = order.orderId;
+
+      await cashfree.checkout({
+        paymentSessionId: order.paymentSessionId,
+        redirectTarget: "_modal",
+      });
+      
+      // When the modal closes, we verify the payment. 
+      // If they abandoned it, verify route will error and we catch it below.
+      action.run(async () => {
+        const payment = await api<{ status: string; id: string }>(
+          "/api/payments/verify",
+          { order_id: orderIdToVerify },
+        );
+        router.push(`/receipts/${payment.id}`);
         router.refresh();
-      }, remainingCheckoutMs(order.expiresAt));
-    } catch (error) {
-      setCheckoutOpen(false);
-      await cancel();
-      throw error;
+      });
+
+    } catch (error: any) {
+      // If checkout fails or is abandoned, cancel it
+      if (orderIdToVerify) {
+        try {
+           await api<{ status: string }>("/api/payments/cancel", {
+            orderId: orderIdToVerify,
+          });
+        } catch (cancelError) {
+           console.error("Failed to cancel order:", cancelError);
+        }
+      }
+      
+      setMethod("choose");
+      action.setSuccess(
+        error?.message || "Payment was not completed. You can retry checkout."
+      );
+    } finally {
+       setCheckoutOpen(false);
+       router.refresh();
     }
   }
-  */
 
-  const disabled = action.busy;
+  const disabled = action.busy || checkoutOpen;
   return (
     <div className="space-y-5">
       {dues.length > 1 && (
@@ -254,89 +182,14 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
             </Link>
           </Button>
         </Card>
-      ) : method === "review" ? (
-        <Card className="border-primary/30">
-          <button
-            onClick={() => setMethod("choose")}
-            className="mb-4 flex min-h-10 items-center gap-2 text-xs text-muted-foreground transition hover:text-foreground"
-          >
-            <ArrowLeft className="size-3.5" />
-            Payment methods
-          </button>
-
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-            <ShieldCheck className="size-3.5" />
-            Cashfree Gateway · Activation in Progress
-          </div>
-
-          <h2 className="text-xl font-semibold">Online Payment Gateway Under Review</h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            We are currently migrating our payment gateway from Razorpay to <strong>Cashfree Payments</strong>.
-            Online gateway checkout (UPI, Credit/Debit Cards, Net Banking) will be activated immediately once merchant account verification is complete.
-          </p>
-
-          <div className="my-5 space-y-2.5 rounded-xl border border-border bg-muted/40 p-4 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Fee Description:</span>
-              <span className="font-medium">{fee.label}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Due Date:</span>
-              <span className="font-medium">{dateLabel(fee.dueDate)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Payable Amount:</span>
-              <span className="text-base font-semibold text-primary">{money(fee.outstanding)}</span>
-            </div>
-            <div className="flex justify-between border-t border-border pt-2">
-              <span className="text-muted-foreground">Gateway Status:</span>
-              <span className="font-medium text-amber-700">Awaiting Cashfree Merchant Activation</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Button
-              className="w-full"
-              size="lg"
-              pending={action.busy}
-              pendingText="Processing..."
-              onClick={() => {
-                action.run(async () => {
-                  const result = await api<{ id: string; status: string }>(
-                    "/api/payments/review-pay",
-                    { feeDueId: fee.id },
-                  );
-                  router.push(`/receipts/${result.id}`);
-                  router.refresh();
-                });
-              }}
-            >
-              <CheckCircle2 className="size-4" />
-              Simulate Test Payment (Reviewer Demo)
-            </Button>
-
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setMethod("choose")}
-            >
-              Back to payment options
-            </Button>
-          </div>
-        </Card>
       ) : method === "choose" ? (
         <>
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3.5 text-xs text-primary">
-            <p className="font-medium">
-              Payment Gateway Notice: Migrating to Cashfree Payments. Online payment checkout is active in reviewer mode.
-            </p>
-          </div>
           <h2 className="pt-2 text-lg font-semibold">
             How would you like to pay?
           </h2>
           <button
             disabled={disabled}
-            onClick={() => setMethod("review")}
+            onClick={() => action.run(onlineCashfree)}
             className="flex min-h-28 w-full items-center gap-4 rounded-2xl border border-primary/30 bg-white p-5 text-left transition hover:bg-primary/5 disabled:opacity-50"
           >
             <span className="rounded-xl bg-[#e9f1e4] p-3 text-primary">
@@ -347,7 +200,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
                 {fee.pending ? "Continue online payment" : "Pay online"}
               </span>
               <span className="mt-1.5 block text-xs text-muted-foreground">
-                UPI, Cards or Net Banking · Cashfree (Under Review)
+                UPI, Cards or Net Banking · Cashfree
               </span>
             </span>
             {disabled ? (

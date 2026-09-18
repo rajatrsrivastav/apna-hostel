@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { feeDues, payments } from "@/db/schema";
 import { AppError } from "./errors";
 import { balance } from "./money";
-import type { ProviderPayment } from "./razorpay";
+import type { ProviderPayment } from "./cashfree";
 import {
   notifyPaymentSuccess,
   notifyPaymentIncomplete,
@@ -38,7 +38,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
   const [record] = await db
     .select()
     .from(payments)
-    .where(eq(payments.razorpayOrderId, provider.order_id));
+    .where(eq(payments.cashfreeOrderId, provider.order_id));
   if (!record)
     throw new AppError("Order not yet recorded. Retry notification.", 503);
   const result = await db.transaction(async (tx) => {
@@ -50,19 +50,19 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     if (
       provider.currency !== "INR" ||
       provider.amount !== payment.amount ||
-      payment.method !== "razorpay"
+      payment.method !== "cashfree"
     )
       throw new AppError("Payment amount does not match the order.", 409);
     if (payment.status === "verified" || payment.attemptStatus === "paid") {
       if (
-        payment.razorpayPaymentId !== provider.id &&
-        provider.status === "captured"
+        payment.cashfreePaymentId !== provider.id &&
+        provider.status === "SUCCESS"
       )
         throw new AppError("Order has a different captured payment.", 409);
       return payment;
     }
-    // Failed attempts are not terminal for an order: Razorpay can retry the same order.
-    if (provider.status === "failed") {
+    // Failed attempts are not terminal for an order: Cashfree can retry the same order.
+    if (provider.status === "FAILED") {
       const [failed] = await tx
         .update(payments)
         .set({
@@ -74,8 +74,8 @@ export async function settleProviderPayment(provider: ProviderPayment) {
         .returning();
       return failed;
     }
-    if (provider.status !== "captured" || provider.captured === false) {
-      if (provider.status === "authorized" && payment.status === "pending") {
+    if (provider.status !== "SUCCESS") {
+      if (provider.status === "PENDING" && payment.status === "pending") {
         await tx
           .update(payments)
           .set({ attemptStatus: "pending" })
@@ -91,7 +91,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       .set({
         status: excess ? "rejected" : "verified",
         attemptStatus: "paid",
-        razorpayPaymentId: provider.id,
+        cashfreePaymentId: provider.id,
         reviewNote: excess
           ? "Payment captured after the fee balance changed. Office refund review required; no duplicate rent credit applied."
           : null,
@@ -136,7 +136,7 @@ export async function expireProviderAttempts(
       and(
         eq(payments.userId, userId),
         feeDueId ? eq(payments.feeDueId, feeDueId) : undefined,
-        eq(payments.method, "razorpay"),
+        eq(payments.method, "cashfree"),
         eq(payments.status, "pending"),
         lte(payments.createdAt, new Date(Date.now() - 15 * 60 * 1000)),
       ),

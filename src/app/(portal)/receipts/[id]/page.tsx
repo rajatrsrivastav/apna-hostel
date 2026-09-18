@@ -55,7 +55,7 @@ export default async function Receipt({
           </h1>
           <StatusBadge
             status={
-              p.method === "razorpay" &&
+              p.method === "cashfree" &&
               !p.attemptStatus &&
               p.status === "pending"
                 ? "processing"
@@ -70,8 +70,8 @@ export default async function Receipt({
             ["Method", paymentMethodLabel(p.method)],
             ["Date", dateLabel(p.paymentDate || p.createdAt)],
             ["Reference", p.id],
-            ...(p.razorpayPaymentId
-              ? [["Payment ID", p.razorpayPaymentId]]
+            ...(p.cashfreePaymentId
+              ? [["Payment ID", p.cashfreePaymentId]]
               : []),
             ...(p.reviewedAt ? [["Reviewed", dateLabel(p.reviewedAt)]] : []),
           ].map(([label, value]) => (
@@ -95,7 +95,7 @@ export default async function Receipt({
             जाँच बाकी है। दोबारा भुगतान न करें।
           </p>
         )}
-        {p.method === "razorpay" && p.status !== "verified" && (
+        {p.method === "cashfree" && p.status !== "verified" && (
           <div className="no-print mb-5">
             <Reconcile id={p.id} />
           </div>
