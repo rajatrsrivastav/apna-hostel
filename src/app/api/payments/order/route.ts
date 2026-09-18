@@ -51,7 +51,7 @@ export const POST = mutation(async (req) => {
     const orderId = `apna_${id.replace(/-/g, "")}`;
     // Cashfree expects order_amount in rupees (not paise)
     const orderAmountRupees = amount / 100;
-    const returnUrl = `${requiredEnv("BETTER_AUTH_URL")}/payment-status?order_id={order_id}`;
+    const returnUrl = `${requiredEnv("BETTER_AUTH_URL")}/student/payment-status?order_id={order_id}`;
     const digitsOnly = (profile.phone || "").replace(/\D/g, "");
     const customerPhone = /^[6-9]\d{9}$/.test(digitsOnly)
       ? digitsOnly
@@ -89,6 +89,7 @@ export const POST = mutation(async (req) => {
   });
   return Response.json({
     paymentSessionId: "paymentSessionId" in payment ? payment.paymentSessionId : undefined,
+    payment_session_id: "paymentSessionId" in payment ? payment.paymentSessionId : undefined,
     orderId: payment.cashfreeOrderId,
     amount: payment.amount,
     expiresAt: new Date(
@@ -97,5 +98,6 @@ export const POST = mutation(async (req) => {
     name: profile.fullName,
     email: user.email,
     phone: profile.phone,
+    environment: process.env.CASHFREE_ENV === "production" ? "production" : "sandbox",
   });
 });

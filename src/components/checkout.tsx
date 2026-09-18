@@ -18,7 +18,6 @@ import { Input } from "./ui/input";
 import { api, Feedback, Field, Spinner, useAction } from "./form-kit";
 import { dateLabel, money } from "@/lib/money";
 import { todayIndia } from "@/lib/validation";
-import { load } from "@cashfreepayments/cashfree-js";
 
 export type PayableFee = {
   id: string;
@@ -34,13 +33,15 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     [submitted, setSubmitted] = useState("");
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState("");
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [payError, setPayError] = useState("");
+  const [paySuccess, setPaySuccess] = useState("");
   const action = useAction(),
     router = useRouter();
     
   useEffect(() => {
     // Polling logic for pending verification (manual UPI) or after checkout finishes
-    if (checkoutOpen) return;
+    if (isLoading) return;
     const timer = setInterval(() => router.refresh(), 15000);
     const refresh = () => router.refresh();
     window.addEventListener("focus", refresh);
@@ -48,7 +49,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [router, checkoutOpen]);
+  }, [router, isLoading]);
 
   const fee = dues.find((f) => f.id === selected);
   if (submitted)
@@ -59,7 +60,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
         <p className="my-4 text-sm text-muted-foreground">
           जाँच के बाद फीस अपडेट हो जाएगी।
           <br />
-          The office will verify it. Please don’t pay again.
+          The office will verify it. Please don&apos;t pay again.
         </p>
         <Button asChild>
           <Link href={`/receipts/${submitted}`}>
@@ -83,66 +84,83 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
       </Card>
     );
 
-  async function onlineCashfree() {
-    const env =
-      process.env.NEXT_PUBLIC_CASHFREE_ENV === "production"
-        ? "production"
-        : "sandbox";
-    const cashfree = await load({ mode: env });
-
-    setCheckoutOpen(true);
-    let orderIdToVerify = "";
+  async function handlePayment() {
+    if (isLoading) return;
+    setIsLoading(true);
+    setPayError("");
+    setPaySuccess("");
 
     try {
-      const order = await api<{
-        paymentSessionId: string;
-        orderId: string;
-      }>("/api/payments/order", { feeDueId: fee!.id });
-
-      orderIdToVerify = order.orderId;
-
-      await cashfree.checkout({
-        paymentSessionId: order.paymentSessionId,
-        redirectTarget: "_modal",
+      // 1. Create order via our backend
+      const res = await fetch("/api/payments/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feeDueId: fee!.id }),
       });
 
-      // When the modal closes, check if payment was completed
-      try {
-        const payment = await api<{ status: string; id: string }>(
-          "/api/payments/verify",
-          { order_id: orderIdToVerify },
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+          (err as { error?: string }).error ||
+            `Server error (${res.status}). Please try again.`,
         );
-        router.push(`/receipts/${payment.id}`);
-        router.refresh();
+      }
+
+      const data = await res.json();
+
+      // 2. CRITICAL: Validate payment session ID before touching the SDK
+      const paymentSessionId =
+        data?.payment_session_id || data?.paymentSessionId;
+      if (!data || !paymentSessionId) {
+        console.error(
+          "CASHFREE ERROR: Missing payment_session_id in backend response. Received:",
+          data,
+        );
+        if (typeof alert !== "undefined") {
+          alert(
+            "Failed to initialize payment. Check the console for details.",
+          );
+        }
+        setIsLoading(false);
         return;
-      } catch {
-        // Closed without payment: cancel the attempt cleanly so fee is never stuck
-        try {
-          await api<{ status: string }>("/api/payments/cancel", {
-            orderId: orderIdToVerify,
-          });
-        } catch {
-          // ignore cancel error
+      }
+
+      // 3. Dynamically load Cashfree SDK (SSR-safe, no global init)
+      const env =
+        data.environment ||
+        (process.env.NEXT_PUBLIC_CASHFREE_ENV === "production"
+          ? "production"
+          : "sandbox");
+      const { load } = await import("@cashfreepayments/cashfree-js");
+      const cashfree = await load({ mode: env });
+
+      // 4. Trigger hosted checkout — _self forces a hard redirect,
+      //    avoiding all DOM/CSS conflicts from the in-page modal.
+      try {
+        await cashfree.checkout({
+          paymentSessionId,
+          redirectTarget: "_self",
+        });
+      } catch (sdkErr) {
+        console.error("Cashfree SDK failed to launch:", sdkErr);
+        if (typeof alert !== "undefined") {
+          alert("Payment gateway failed to open.");
         }
       }
-    } catch (error: any) {
-      if (orderIdToVerify) {
-        try {
-          await api<{ status: string }>("/api/payments/cancel", {
-            orderId: orderIdToVerify,
-          });
-        } catch {}
-      }
-      action.setSuccess(
-        error?.message || "Payment was not completed. You can try again.",
+
+      // Browser navigates away on success — no further code runs.
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      setPayError(
+        message || "Payment was not completed. You can try again.",
       );
     } finally {
-      setCheckoutOpen(false);
-      router.refresh();
+      setIsLoading(false);
     }
   }
 
-  const disabled = action.busy || checkoutOpen;
+  const disabled = action.busy || isLoading;
   return (
     <div className="space-y-5">
       {dues.length > 1 && (
@@ -194,19 +212,21 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
           </h2>
           <button
             disabled={disabled}
-            onClick={() => action.run(onlineCashfree)}
+            onClick={handlePayment}
             className="flex min-h-28 w-full items-center gap-4 rounded-2xl border border-primary/30 bg-white p-5 text-left transition hover:bg-primary/5 disabled:opacity-50"
           >
             <span className="rounded-xl bg-[#e9f1e4] p-3 text-primary">
               <CreditCard className="size-6" />
             </span>
             <span className="flex-1">
-              <span className="block font-semibold">Pay online</span>
+              <span className="block font-semibold">
+                {isLoading ? "Initializing..." : "Pay online"}
+              </span>
               <span className="mt-1.5 block text-xs text-muted-foreground">
                 UPI, Cards or Net Banking · Cashfree
               </span>
             </span>
-            {disabled ? (
+            {isLoading ? (
               <Spinner />
             ) : (
               <ArrowRight className="size-5 text-primary" />
@@ -318,7 +338,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
           </form>
         </Card>
       )}
-      <Feedback error={action.error} success={action.success} />
+      <Feedback error={payError || action.error} success={paySuccess || action.success} />
       <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="size-4" />
         Safe payments. Private screenshots.

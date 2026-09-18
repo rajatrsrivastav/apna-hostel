@@ -119,7 +119,7 @@ it("switching to manual payment view and clicking back restores payment choices"
   expect(restoredButtons).toHaveLength(2);
 });
 
-it("initiating online checkout calls order endpoint and verifies payment", async () => {
+it("initiating online checkout calls order endpoint and launches hosted checkout", async () => {
   const initialButtons = buttons(render());
   // Click "Pay online" (index 0)
   await initialButtons[0].props.onClick!();
@@ -127,8 +127,7 @@ it("initiating online checkout calls order endpoint and verifies payment", async
   expect(
     fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/order")),
   ).toBe(true);
-  expect(
-    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/verify")),
-  ).toBe(true);
-  expect(state.push).toHaveBeenCalledWith("/receipts/payment-1");
+  // With _self redirect, the browser navigates away — no verify call or router.push
+  const { load } = await import("@cashfreepayments/cashfree-js");
+  expect(load).toHaveBeenCalled();
 });

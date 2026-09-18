@@ -1,10 +1,10 @@
 # Apna Hostel — PG / hostel fee portal
 
-A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, Razorpay, and private Cloudinary image storage. The lockfile pins the installed stable versions. There are **no demo accounts, fabricated payments, or mock data in the application**.
+A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, Cashfree, and private Cloudinary image storage. The lockfile pins the installed stable versions. There are **no demo accounts, fabricated payments, or mock data in the application**.
 
 ## Quick local setup
 
-Requirements: Node.js 22+, npm, and accounts with Neon, Google Cloud, Razorpay, and Cloudinary.
+Requirements: Node.js 22+, npm, and accounts with Neon, Google Cloud, Cashfree, and Cloudinary.
 
 ```sh
 npm ci
@@ -48,21 +48,12 @@ Set server-side `ADMIN_EMAIL` to your Google account. Sign in through the same `
 
 Pending/rejected students go to `/approval`, which includes Logout. Accepted students go to `/dashboard` (the existing dashboard UI); the existing profile-completion step still applies. Existing `/student` links remain supported.
 
-### 4. Razorpay test and live configuration
+### 4. Cashfree test and live configuration
 
-1. In the [Razorpay dashboard](https://dashboard.razorpay.com/), select **Test mode**, generate API keys, and fill `RAZORPAY_KEY_ID=rzp_test_...` and `RAZORPAY_KEY_SECRET` from the same key pair.
-2. Set payments to **automatic capture** in the dashboard. The portal only marks a payment verified after the server fetches `captured` status; authorization alone does not clear a fee.
-3. Generate a separate random `RAZORPAY_WEBHOOK_SECRET` (for example with `openssl rand -base64 32`).
-4. Create a webhook for **`https://YOUR-DOMAIN/api/razorpay/webhook`**, using the same webhook secret. Enable **`payment.captured`**, **`order.paid`**, and **`payment.failed`** events.
-5. Razorpay cannot call localhost directly. For local webhook testing, expose port 3000 through an HTTPS tunnel or use a stable Vercel staging domain; configure that public URL in Razorpay. Keep browser sign-in on the origin configured in `BETTER_AUTH_URL`.
-6. Test a fee using the test checkout options available in Razorpay. Verify that the receipt changes to Paid, duplicate webhook deliveries do not add money again, and manual UPI uploads stay pending until approval.
-7. For live operation, complete Razorpay activation, switch the deployment to the **live key pair**, create a **live-mode webhook**, and use its secret. Test keys and live keys/webhooks are separate. Use a separate staging database to avoid mixing test and real collections. Redeploy after changing variables.
-
-Checkout creates the amount from the database; the browser cannot choose an online payment amount. Checkout signatures use `stored_order_id|payment_id`. Webhooks authenticate the original raw bytes. Both then fetch the payment from Razorpay and share an idempotent, row-locked settlement function. Order/payment IDs have database uniqueness constraints. Repeated deliveries and delayed failure events cannot demote a verified payment.
-
-An abandoned online order is reused when the student opens checkout again. “Check payment” reconciles with Razorpay after connection loss. A failed order can later become captured, and that actual collection is retained. A pending online checkout temporarily blocks manual submissions for the same fee to reduce duplicate payment risk. If it has not failed or completed, use the existing checkout; the office should reconcile deducted money before another payment. Do not mark captured transactions unpaid to simulate a refund: refunds are handled in Razorpay and must be reconciled operationally; automated refund processing is outside this portal’s fee-collection scope.
-
-Reference: [Razorpay webhook validation](https://razorpay.com/docs/webhooks/validate-test/).
+1. In the [Cashfree Merchant Dashboard](https://merchant.cashfree.com/), obtain your **App ID** and **Secret Key** for Sandbox (test) or Production (live). Fill `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` in `.env.local`. Set `CASHFREE_ENV=sandbox` for testing or `CASHFREE_ENV=production` for live.
+2. In the Cashfree dashboard, go to **Developers → Webhooks** and add an endpoint pointing to **`https://YOUR-DOMAIN/api/cashfree/webhook`**. Configure the webhook version and events (`PAYMENT_SUCCESS_WEBHOOK`, `PAYMENT_FAILED_WEBHOOK`).
+3. Webhooks authenticate incoming requests using HMAC-SHA256 signatures with `CASHFREE_SECRET_KEY` (or `CASHFREE_WEBHOOK_SECRET`). Both webhooks and return-url verification fetch the payment status from Cashfree and share an idempotent, row-locked settlement function. Order/payment IDs have database uniqueness constraints. Repeated deliveries and delayed failure events cannot demote a verified payment.
+4. An abandoned online order is superseded when the student initiates checkout again. “Check payment” reconciles with Cashfree after connection loss. A pending online checkout temporarily blocks manual submissions for the same fee to reduce duplicate payment risk. Do not mark captured transactions unpaid to simulate a refund: refunds are handled in Cashfree and must be reconciled operationally; automated refund processing is outside this portal’s fee-collection scope.
 
 ### 5. Cloudinary screenshots
 
@@ -80,7 +71,7 @@ The body cap stays below Vercel’s function request limit. Uploads never write 
 - Admin accepts → complete full name, phone, ITI/Diploma, trade, year/semester.
 - Pending/rejected accounts cannot access dashboard pages, receipts, screenshots, or payment/profile APIs.
 - My fee → Current Month Rent, Previous Due, Total Due, status, and **Pay Now / फीस भरें**.
-- Pay online through Razorpay, or submit amount, date, and a screenshot for a manual UPI payment.
+- Pay online through Cashfree, or submit amount, date, and a screenshot for a manual UPI payment.
 - Payments → history, status, private screenshot and a printable receipt once verified.
 - Help → office call button when `HOSTEL_SUPPORT_PHONE` is set.
 
@@ -93,7 +84,7 @@ Rent is generated automatically at the student’s configured monthly rate (defa
 - All money is integer paise. Verified payments alone count as collected.
 - Outstanding is the sum of `max(0, assessed fee − verified payments − admin adjustment)` per fee.
 - **Record payment / Mark paid** records actual money collected by an admin as a verified `admin_manual` payment. The default amount clears that fee, or enter a partial amount. Admins can edit these collections later, with a reason, payment date and revision check. Enter 0 to void a mistaken collection; its audit history remains. Duplicate retries reuse an idempotency key.
-- Razorpay and screenshot payments remain protected from collection edits. **Waive remaining fee** / **Undo waiver** are separate concession actions and never inflate money collected. Monthly rent defaults to ₹1,000 per student. The Monthly fee field changes future months; Edit fee changes an existing month while preserving payment and waiver checks.
+- Cashfree and screenshot payments remain protected from collection edits. **Waive remaining fee** / **Undo waiver** are separate concession actions and never inflate money collected. Monthly rent defaults to ₹1,000 per student. The Monthly fee field changes future months; Edit fee changes an existing month while preserving payment and waiver checks.
 - Fee changes keep the previous values, reason, actor, and timestamp in the fee audit trail. Manual review stores the reviewer, time, and reason.
 - Pending payments block fee changes. Row locks serialize settlement, reviews, and fee edits; a unique partial index allows only one pending payment per fee. Fee revision checks reject stale edits.
 - A captured payment arriving after another settlement/adjustment is still recorded as money received. Resolve any excess with the student; do not discard provider events. Collections may exceed assessed fees in such an exceptional case.
@@ -116,11 +107,11 @@ For the earlier admission migration (0001), apply migrations with `npm run db:mi
 
 1. Push this project and `package-lock.json` to your Git repository. Import it in [Vercel](https://vercel.com/new) using the **Next.js** preset.
 2. Use Node.js **22.x** or a supported newer LTS release. Install command: `npm ci`; build command: `npm run build`. Keep the default Next.js output settings.
-3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon/Cloudinary credentials and the intended Razorpay mode. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
-4. Configure your stable domain. Add its exact Google callback URI and Razorpay webhook URL as described above. Avoid ephemeral preview URLs for OAuth; use a stable staging domain with its own configuration.
+3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon/Cloudinary credentials and the intended Cashfree mode. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
+4. Configure your stable domain. Add its exact Google callback URI and Cashfree webhook URL as described above. Avoid ephemeral preview URLs for OAuth; use a stable staging domain with its own configuration.
 5. Apply `npm run db:migrate` against the production database from a trusted terminal/CI before opening the deployment. Migrations are not executed at build or on request.
 6. Deploy. Sign in with the intended admin Google account, with `ADMIN_EMAIL` configured on the server.
-7. Complete one test-mode online payment and one manual submission on staging, verify approval/rejection and receipts, then configure live mode for production. Check webhook deliveries in Razorpay and function logs in Vercel.
+7. Complete one test-mode online payment and one manual submission on staging, verify approval/rejection and receipts, then configure live mode for production. Check webhook deliveries in Cashfree and function logs in Vercel.
 8. Configure database backups/restore in Neon and alerting for function failures and failed webhook deliveries. Place functions near the Neon database. The server uses a small pooled connection count for serverless deployment.
 
 The application sends no-store responses for authenticated API data, checks same-origin mutation requests, validates inputs with Zod, rate limits authentication and application mutations in PostgreSQL, and uses privacy-conscious structured error logging. Unexpected API errors return a short incident reference; raw credentials and payment bodies are not logged by application code.
@@ -134,14 +125,14 @@ npm test
 npm run build
 ```
 
-Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes real approval guards for pages/APIs, accepted-only rent, timezone boundaries, missed-month catch-up, concurrent generation, rejection/readmission, cron authentication, collection correction/voiding/idempotency, plus signatures, authorization vs capture, duplicate and out-of-order events, ownership, manual review, stale revisions, adjustments, upload validation and database uniqueness. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, Cloudinary account, or Razorpay credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
+Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes real approval guards for pages/APIs, accepted-only rent, timezone boundaries, missed-month catch-up, concurrent generation, rejection/readmission, cron authentication, collection correction/voiding/idempotency, plus signatures, authorization vs capture, duplicate and out-of-order events, ownership, manual review, stale revisions, adjustments, upload validation and database uniqueness. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, Cloudinary account, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
 
 ## Useful paths
 
 - `src/db/schema.ts`, `drizzle/`: database schema and migrations.
 - `src/lib/auth.ts`, `src/lib/access.ts`: auth/session and role enforcement.
 - `src/lib/ledger.ts`: transaction-safe payment settlement.
-- `src/app/api/`: authenticated mutations, screenshots and Razorpay webhook.
+- `src/app/api/`: authenticated mutations, screenshots and Cashfree webhook.
 - `src/app/(portal)/`: student, admin, and receipt screens.
 - `tests/`: isolated security and database/API tests.
 
@@ -160,7 +151,7 @@ The monthly fee migration adds `users.monthly_rent` with a ₹1,000 default. Run
 ### Payment attempt recovery and admin allowlist
 
 Run `npm run db:migrate` before deploying this version. Migration 0003 adds
-`payments.attempt_status` and backfills existing Razorpay rows. The existing
+`payments.attempt_status` and backfills existing online payment rows. The existing
 `status` remains the accounting/manual-review status; `attempt_status` tracks
 checkout_started, pending, paid, failed, cancelled and abandoned separately.
 Cancellation and expiry release the existing pending-payment reservation.

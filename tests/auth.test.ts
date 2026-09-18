@@ -121,8 +121,9 @@ it("supports a trimmed case-insensitive admin allowlist and overrides the legacy
   delete process.env.ADMIN_EMAILS;
 });
 
-it("removed review login returns 404 even with the old feature flag enabled", async () => {
-  process.env.ENABLE_RAZORPAY_REVIEW_LOGIN = "true";
+it("review login returns 404 when disabled", async () => {
+  const previous = process.env.ENABLE_CASHFREE_REVIEW_LOGIN;
+  delete process.env.ENABLE_CASHFREE_REVIEW_LOGIN;
   try {
     const { POST } = await import("@/app/api/auth/[...all]/route");
     const response = await POST(
@@ -132,11 +133,13 @@ it("removed review login returns 404 even with the old feature flag enabled", as
           origin: "http://localhost:3000",
           "content-type": "application/json",
         },
-        body: JSON.stringify({ email: "review@example.test", password: "old-password" }),
+        body: JSON.stringify({ email: "review@example.test", password: "test-password" }),
       }),
     );
     expect(response.status).toBe(404);
   } finally {
-    delete process.env.ENABLE_RAZORPAY_REVIEW_LOGIN;
+    if (previous !== undefined) {
+      process.env.ENABLE_CASHFREE_REVIEW_LOGIN = previous;
+    }
   }
 });

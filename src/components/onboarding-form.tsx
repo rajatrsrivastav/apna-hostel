@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import { api, Field, Feedback, Spinner, useAction } from "./form-kit";
+import { api, Field, Feedback, useAction } from "./form-kit";
 import { ArrowRight } from "lucide-react";
 export function OnboardingForm({ name }: { name: string }) {
   const action = useAction(),
