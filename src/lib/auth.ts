@@ -10,6 +10,7 @@ import {
   verifications,
   rateLimits,
 } from "@/db/schema";
+import { reviewLoginPlugin } from "./review-login";
 import { authEnv, configuredRole } from "./env";
 let instance: ReturnType<typeof createAuth> | undefined;
 function createAuth() {
@@ -63,7 +64,7 @@ function createAuth() {
     },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
     trustedOrigins: [new URL(env.BETTER_AUTH_URL).origin],
-    plugins: [nextCookies()],
+    plugins: [reviewLoginPlugin, nextCookies()],
   });
 }
 export function getAuth() {

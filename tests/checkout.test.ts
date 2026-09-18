@@ -42,10 +42,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: state.refresh, push: state.push }),
 }));
 import { Checkout, type PayableFee } from "@/components/checkout";
-let options: {
-  handler: (value: object) => void;
-  modal: { ondismiss: () => void };
-};
+import { Button } from "@/components/ui/button";
 let dues: PayableFee[];
 let fetchMock: ReturnType<typeof vi.fn>;
 function render() {
@@ -62,8 +59,12 @@ function buttons(
     disabled?: boolean;
     onClick?: () => Promise<void>;
   }>;
+  const isButton =
+    element.type === "button" ||
+    element.type === Button ||
+    typeof element.props?.onClick === "function";
   return [
-    ...(element.type === "button" ? [element] : []),
+    ...(isButton ? [element] : []),
     ...buttons(element.props?.children),
   ];
 }
@@ -77,36 +78,16 @@ beforeEach(() => {
       label: "Rent",
       dueDate: "2026-10-01",
       outstanding: 50000,
-      pending: { id: "payment-1", method: "razorpay" },
     },
   ];
   state.refresh.mockImplementation(() => {
     dues = dues.map((f) => ({ ...f, pending: undefined }));
   });
-  vi.stubGlobal("window", {
-    Razorpay: class {
-      constructor(value: typeof options) {
-        options = value;
-      }
-      open() {}
-      close() {
-        options.modal.ondismiss();
-      }
-      on() {}
-    },
-  });
   fetchMock = vi.fn(async (path: string) =>
     Response.json(
-      path.endsWith("order")
-        ? {
-            key: "test",
-            orderId: "order_test",
-            amount: 50000,
-            expiresAt: new Date(Date.now() + 900000).toISOString(),
-          }
-        : path.endsWith("cancel")
-          ? { status: "cancelled" }
-          : { id: "payment-1", status: "verified" },
+      path.includes("review-pay")
+        ? { id: "payment-1", status: "verified" }
+        : { id: "payment-1", status: "verified" },
     ),
   );
   vi.stubGlobal("fetch", fetchMock);
@@ -115,38 +96,35 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-it("dismissal persists cancellation and restores both enabled payment options", async () => {
+
+it("clicking pay online switches to Cashfree review view without throwing errors", async () => {
+  const initialButtons = buttons(render());
+  expect(initialButtons).toHaveLength(2); // Pay online & Already paid with UPI
+  await initialButtons[0].props.onClick!();
+  const reviewButtons = buttons(render());
+  // In review view: Back button, Simulate demo payment, Back to payment options
+  expect(reviewButtons.length).toBeGreaterThanOrEqual(2);
+});
+
+it("back button in Cashfree review view restores payment choices", async () => {
   await buttons(render())[0].props.onClick!();
-  await vi.advanceTimersByTimeAsync(0);
-  options.modal.ondismiss();
+  const reviewButtons = buttons(render());
+  // Click back to payment options (the last button)
+  const backBtn = reviewButtons[reviewButtons.length - 1];
+  await backBtn.props.onClick!();
+  const restoredButtons = buttons(render());
+  expect(restoredButtons).toHaveLength(2);
+});
+
+it("simulating test payment calls review-pay endpoint and redirects to receipt", async () => {
+  await buttons(render())[0].props.onClick!();
+  const reviewButtons = buttons(render());
+  // Simulate Test Payment button is index 1
+  const simulateBtn = reviewButtons[1];
+  await simulateBtn.props.onClick!();
   await vi.advanceTimersByTimeAsync(0);
   expect(
-    fetchMock.mock.calls.some(([path]) => path === "/api/payments/cancel"),
+    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/review-pay")),
   ).toBe(true);
-  const choices = buttons(render());
-  expect(choices).toHaveLength(2);
-  expect(choices.every((b) => !b.props.disabled)).toBe(true);
-  expect(state.values).toContain("Payment cancelled. You can try again.");
-});
-it("success followed by dismissal verifies on the server without cancellation", async () => {
-  await buttons(render())[0].props.onClick!();
-  await vi.advanceTimersByTimeAsync(0);
-  options.handler({
-    razorpay_order_id: "order_test",
-    razorpay_payment_id: "pay_test",
-    razorpay_signature: "signed",
-  });
-  options.modal.ondismiss();
-  await vi.advanceTimersByTimeAsync(0);
   expect(state.push).toHaveBeenCalledWith("/receipts/payment-1");
-  expect(
-    fetchMock.mock.calls.some(([path]) => path === "/api/payments/cancel"),
-  ).toBe(false);
-});
-it("a checkout left open releases the UI after fifteen minutes", async () => {
-  await buttons(render())[0].props.onClick!();
-  await vi.advanceTimersByTimeAsync(0);
-  await vi.advanceTimersByTimeAsync(900000);
-  expect(buttons(render()).every((b) => !b.props.disabled)).toBe(true);
-  expect(state.refresh).toHaveBeenCalled();
 });

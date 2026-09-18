@@ -29,7 +29,7 @@ export function feeStatus(
 
 export function paymentMethodLabel(method: string) {
   return method === "razorpay"
-    ? "Razorpay · Online"
+    ? "Online Payment"
     : method === "admin_manual"
       ? "Paid to admin"
       : "Manual UPI";
