@@ -84,56 +84,61 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     );
 
   async function onlineCashfree() {
-    // Use sandbox mode unconditionally as per requirements for now. 
-    // In production, this would read from a NEXT_PUBLIC env var.
-    const cashfree = await load({ mode: "sandbox" });
-    
+    const env =
+      process.env.NEXT_PUBLIC_CASHFREE_ENV === "production"
+        ? "production"
+        : "sandbox";
+    const cashfree = await load({ mode: env });
+
     setCheckoutOpen(true);
     let orderIdToVerify = "";
-    
+
     try {
       const order = await api<{
         paymentSessionId: string;
         orderId: string;
       }>("/api/payments/order", { feeDueId: fee!.id });
-      
+
       orderIdToVerify = order.orderId;
 
       await cashfree.checkout({
         paymentSessionId: order.paymentSessionId,
         redirectTarget: "_modal",
       });
-      
-      // When the modal closes, we verify the payment. 
-      // If they abandoned it, verify route will error and we catch it below.
-      action.run(async () => {
+
+      // When the modal closes, check if payment was completed
+      try {
         const payment = await api<{ status: string; id: string }>(
           "/api/payments/verify",
           { order_id: orderIdToVerify },
         );
         router.push(`/receipts/${payment.id}`);
         router.refresh();
-      });
-
-    } catch (error: any) {
-      // If checkout fails or is abandoned, cancel it
-      if (orderIdToVerify) {
+        return;
+      } catch {
+        // Closed without payment: cancel the attempt cleanly so fee is never stuck
         try {
-           await api<{ status: string }>("/api/payments/cancel", {
+          await api<{ status: string }>("/api/payments/cancel", {
             orderId: orderIdToVerify,
           });
-        } catch (cancelError) {
-           console.error("Failed to cancel order:", cancelError);
+        } catch {
+          // ignore cancel error
         }
       }
-      
-      setMethod("choose");
+    } catch (error: any) {
+      if (orderIdToVerify) {
+        try {
+          await api<{ status: string }>("/api/payments/cancel", {
+            orderId: orderIdToVerify,
+          });
+        } catch {}
+      }
       action.setSuccess(
-        error?.message || "Payment was not completed. You can retry checkout."
+        error?.message || "Payment was not completed. You can try again.",
       );
     } finally {
-       setCheckoutOpen(false);
-       router.refresh();
+      setCheckoutOpen(false);
+      router.refresh();
     }
   }
 
@@ -196,9 +201,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
               <CreditCard className="size-6" />
             </span>
             <span className="flex-1">
-              <span className="block font-semibold">
-                {fee.pending ? "Continue online payment" : "Pay online"}
-              </span>
+              <span className="block font-semibold">Pay online</span>
               <span className="mt-1.5 block text-xs text-muted-foreground">
                 UPI, Cards or Net Banking · Cashfree
               </span>
@@ -209,34 +212,24 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
               <ArrowRight className="size-5 text-primary" />
             )}
           </button>
-          {!fee.pending && (
-            <button
-              disabled={disabled}
-              onClick={() => setMethod("manual")}
-              className="flex min-h-28 w-full items-center gap-4 rounded-2xl border border-border bg-white p-5 text-left transition hover:bg-muted"
-            >
-              <span className="rounded-xl bg-[#f3efe5] p-3 text-[#947339]">
-                <Smartphone className="size-6" />
+          <button
+            disabled={disabled}
+            onClick={() => setMethod("manual")}
+            className="flex min-h-28 w-full items-center gap-4 rounded-2xl border border-border bg-white p-5 text-left transition hover:bg-muted"
+          >
+            <span className="rounded-xl bg-[#f3efe5] p-3 text-[#947339]">
+              <Smartphone className="size-6" />
+            </span>
+            <span className="flex-1">
+              <span className="block font-semibold">
+                Already paid with UPI?
               </span>
-              <span className="flex-1">
-                <span className="block font-semibold">
-                  Already paid with UPI?
-                </span>
-                <span className="mt-1.5 block text-xs text-muted-foreground">
-                  पहले ही भुगतान किया? Upload screenshot
-                </span>
+              <span className="mt-1.5 block text-xs text-muted-foreground">
+                पहले ही भुगतान किया? Upload screenshot
               </span>
-              <ArrowRight className="size-5 text-muted-foreground" />
-            </button>
-          )}
-          {fee.pending && (
-            <Link
-              href={`/receipts/${fee.pending.id}`}
-              className="inline-flex min-h-12 items-center text-sm font-medium text-primary"
-            >
-              Money deducted? Check payment status →
-            </Link>
-          )}
+            </span>
+            <ArrowRight className="size-5 text-muted-foreground" />
+          </button>
         </>
       ) : (
         <Card>

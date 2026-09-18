@@ -1,5 +1,5 @@
 import { rateLimit } from "@/lib/rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { payments } from "@/db/schema";
@@ -24,8 +24,17 @@ export const POST = mutation(async (req) => {
     throw new AppError("Payment not found.", 404);
   // Query Cashfree for authoritative order status
   const order = await fetchOrder(body.order_id);
-  if (order.order_status !== "PAID")
+  if (order.order_status !== "PAID") {
+    await getDb()
+      .update(payments)
+      .set({
+        status: "failed",
+        attemptStatus: "abandoned",
+        reviewNote: "Payment was not completed during checkout.",
+      })
+      .where(and(eq(payments.id, record.id), eq(payments.status, "pending")));
     throw new AppError("Payment has not been completed yet.", 400);
+  }
   // Fetch the successful payment attempt
   const attempts = await fetchOrderPayments(body.order_id);
   const captured = attempts.find((p) => p.status === "SUCCESS");

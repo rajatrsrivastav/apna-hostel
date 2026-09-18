@@ -127,7 +127,7 @@ function toProviderPayment(raw: z.infer<typeof paymentSchema>): ProviderPayment 
   return {
     id: raw.cf_payment_id,
     order_id: raw.order_id,
-    amount: raw.payment_amount,
+    amount: Math.round(raw.payment_amount * 100),
     currency: raw.payment_currency,
     status: raw.payment_status,
   };

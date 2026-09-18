@@ -34,9 +34,18 @@ export const POST = mutation(async (req) => {
         and(eq(payments.feeDueId, fee.id), eq(payments.status, "pending")),
       );
     if (existing) {
-      if (existing.method === "manual_upi")
+      if (existing.method === "manual_upi") {
         throw new AppError("Your screenshot is awaiting verification.", 409);
-      return existing;
+      }
+      // Supersede previous uncompleted Cashfree attempt so fee has no stuck pending record
+      await tx
+        .update(payments)
+        .set({
+          status: "failed",
+          attemptStatus: "abandoned",
+          reviewNote: "Superseded by new checkout attempt.",
+        })
+        .where(eq(payments.id, existing.id));
     }
     const id = crypto.randomUUID();
     const orderId = `apna_${id.replace(/-/g, "")}`;

@@ -138,7 +138,9 @@ export async function expireProviderAttempts(
         feeDueId ? eq(payments.feeDueId, feeDueId) : undefined,
         eq(payments.method, "cashfree"),
         eq(payments.status, "pending"),
-        lte(payments.createdAt, new Date(Date.now() - 15 * 60 * 1000)),
+        feeDueId
+          ? undefined
+          : lte(payments.createdAt, new Date(Date.now() - 15 * 60 * 1000)),
       ),
     );
 }

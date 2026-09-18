@@ -11,10 +11,7 @@ export const POST = mutation(async (req) => {
   const user = await requireUser();
   const { orderId } = z
     .object({
-      orderId: z
-        .string()
-        .regex(/^order_[a-zA-Z0-9]+$/)
-        .max(100),
+      orderId: z.string().min(1).max(100),
     })
     .parse(await jsonBody(req));
   const [record] = await getDb()
