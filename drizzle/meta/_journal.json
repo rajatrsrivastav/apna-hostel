@@ -57,6 +57,13 @@
       "when": 1789393000000,
       "tag": "0007_cleanup_test_user",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789740000000,
+      "tag": "0008_cashfree_migration",
+      "breakpoints": true
     }
   ]
 }

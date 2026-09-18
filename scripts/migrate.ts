@@ -14,9 +14,7 @@ async function main() {
     await pool.end();
   }
 }
-main().catch(() => {
-  console.error(
-    "Migration failed. Check database connectivity and migration state.",
-  );
+main().catch((err) => {
+  console.error("Migration failed:", err);
   process.exitCode = 1;
 });

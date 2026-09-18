@@ -38,6 +38,11 @@ vi.mock("react", async (original) => ({
     ];
   },
 }));
+vi.mock("@cashfreepayments/cashfree-js", () => ({
+  load: vi.fn().mockResolvedValue({
+    checkout: vi.fn().mockResolvedValue({}),
+  }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: state.refresh, push: state.push }),
 }));
@@ -85,8 +90,8 @@ beforeEach(() => {
   });
   fetchMock = vi.fn(async (path: string) =>
     Response.json(
-      path.includes("review-pay")
-        ? { id: "payment-1", status: "verified" }
+      path.includes("/api/payments/order")
+        ? { orderId: "order-123", paymentSessionId: "session-123" }
         : { id: "payment-1", status: "verified" },
     ),
   );
@@ -97,34 +102,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("clicking pay online switches to Cashfree review view without throwing errors", async () => {
+it("renders payment options initially", () => {
   const initialButtons = buttons(render());
   expect(initialButtons).toHaveLength(2); // Pay online & Already paid with UPI
-  await initialButtons[0].props.onClick!();
-  const reviewButtons = buttons(render());
-  // In review view: Back button, Simulate demo payment, Back to payment options
-  expect(reviewButtons.length).toBeGreaterThanOrEqual(2);
 });
 
-it("back button in Cashfree review view restores payment choices", async () => {
-  await buttons(render())[0].props.onClick!();
-  const reviewButtons = buttons(render());
-  // Click back to payment options (the last button)
-  const backBtn = reviewButtons[reviewButtons.length - 1];
-  await backBtn.props.onClick!();
+it("switching to manual payment view and clicking back restores payment choices", async () => {
+  const initialButtons = buttons(render());
+  // Click "Already paid with UPI?" (index 1)
+  await initialButtons[1].props.onClick!();
+  const manualButtons = buttons(render());
+  // First button in manual view is "Payment methods" back button
+  expect(manualButtons.length).toBeGreaterThanOrEqual(1);
+  await manualButtons[0].props.onClick!();
   const restoredButtons = buttons(render());
   expect(restoredButtons).toHaveLength(2);
 });
 
-it("simulating test payment calls review-pay endpoint and redirects to receipt", async () => {
-  await buttons(render())[0].props.onClick!();
-  const reviewButtons = buttons(render());
-  // Simulate Test Payment button is index 1
-  const simulateBtn = reviewButtons[1];
-  await simulateBtn.props.onClick!();
+it("initiating online checkout calls order endpoint and verifies payment", async () => {
+  const initialButtons = buttons(render());
+  // Click "Pay online" (index 0)
+  await initialButtons[0].props.onClick!();
   await vi.advanceTimersByTimeAsync(0);
   expect(
-    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/review-pay")),
+    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/order")),
+  ).toBe(true);
+  expect(
+    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/verify")),
   ).toBe(true);
   expect(state.push).toHaveBeenCalledWith("/receipts/payment-1");
 });
