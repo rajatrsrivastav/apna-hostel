@@ -1,11 +1,8 @@
 import "server-only";
 import { AppError, errorResponse } from "./errors";
-import { requiredEnv } from "./env";
+import { publicOrigin } from "./env";
 export function checkOrigin(request: Request) {
-  if (
-    request.headers.get("origin") !==
-    new URL(requiredEnv("BETTER_AUTH_URL")).origin
-  )
+  if (request.headers.get("origin") !== publicOrigin())
     throw new AppError("Please reload this page and try again.", 403);
 }
 export async function jsonBody(request: Request) {

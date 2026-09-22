@@ -20,10 +20,9 @@ import {
   buildAdminNewPaymentAlert,
   buildPaymentRejectedEmail,
 } from "./email";
-import { getAdminEmails } from "./env";
+import { getAdminEmails, publicOrigin } from "./env";
 
-const getBaseUrl = () =>
-  process.env.BETTER_AUTH_URL?.replace(/\/$/, "") || "http://localhost:3000";
+const getBaseUrl = () => publicOrigin();
 
 // 1. Monthly Rent Generated Notification
 export async function notifyRentGenerated(feeDueId: string) {
@@ -115,7 +114,7 @@ export async function notifyRentGenerated(feeDueId: string) {
   } catch (err) {
     console.error(
       "[Notification] Failed to send rent generated email:",
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
   }
 }
@@ -179,7 +178,7 @@ export async function notifyPaymentSuccess(paymentId: string) {
   } catch (err) {
     console.error(
       "[Notification] Failed to send payment success email:",
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
   }
 }
@@ -250,7 +249,7 @@ export async function notifyPaymentIncomplete(
   } catch (err) {
     console.error(
       `[Notification] Failed to send payment ${type} email:`,
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
   }
 }
@@ -463,14 +462,14 @@ export async function notifyManualPaymentSubmitted(paymentId: string) {
       } catch (err) {
         console.error(
           `[Notification] Failed to send admin alert to ${adminEmail}:`,
-          err instanceof Error ? err.message : String(err),
+          err instanceof Error ? err.name : "UnknownError",
         );
       }
     }
   } catch (err) {
     console.error(
       "[Notification] Failed to send manual payment submitted email:",
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
   }
 }
@@ -534,7 +533,7 @@ export async function notifyPaymentRejected(paymentId: string) {
   } catch (err) {
     console.error(
       "[Notification] Failed to send payment rejected email:",
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
   }
 }

@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
+export const dynamic = "force-dynamic";
 export default async function Login({
   searchParams,
 }: {

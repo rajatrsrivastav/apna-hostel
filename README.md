@@ -1,10 +1,10 @@
 # Apna Hostel — PG / hostel fee portal
 
-A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, Cashfree, and private Cloudinary image storage. The lockfile pins the installed stable versions. There are **no demo accounts, fabricated payments, or mock data in the application**.
+A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, Cashfree, and private Cloudinary image storage. The lockfile pins the installed stable versions. The optional Cashfree reviewer account is isolated from real student identities. Simulated payment endpoints are removed; provider mocks exist only in tests.
 
 ## Quick local setup
 
-Requirements: Node.js 22+, npm, and accounts with Neon, Google Cloud, Cashfree, and Cloudinary.
+Requirements: Node.js 22.x, npm, and accounts with Neon, Google Cloud, Cashfree, and Cloudinary.
 
 ```sh
 npm ci
@@ -12,14 +12,14 @@ cp .env.example .env.local
 openssl rand -base64 32
 ```
 
-Paste that generated secret into `BETTER_AUTH_SECRET`; fill the remaining `.env.local` values using the steps below. Never use the example database URL as a real connection string. No secret is exposed through `NEXT_PUBLIC_*` variables.
+Paste that generated secret into `BETTER_AUTH_SECRET`; fill the remaining `.env.local` values using the steps below. Production setup and release blockers are documented in [PRODUCTION.md](PRODUCTION.md). No secret is exposed through `NEXT_PUBLIC_*` variables.
 
 ```sh
 npm run db:migrate
 npm run dev
 ```
 
-Open http://localhost:3000. Sign in with Google. New students see only “Approval Pending / Admin se approval pending hai.” An admin must accept them in Pending Students before they can finish the five-field profile or access any dashboard. Acceptance creates the first ₹1,000 monthly rent.
+Open http://localhost:3000. Sign in with Google. New students complete onboarding, then wait for admin approval before accessing their dashboard. Acceptance generates monthly rent at the configured rate (₹1,000 by default).
 
 ### 1. Neon PostgreSQL
 
@@ -48,12 +48,16 @@ Set server-side `ADMIN_EMAIL` to your Google account. Sign in through the same `
 
 Pending/rejected students go to `/approval`, which includes Logout. Accepted students go to `/dashboard` (the existing dashboard UI); the existing profile-completion step still applies. Existing `/student` links remain supported.
 
-### 4. Cashfree test and live configuration
+### 4. Cashfree production configuration
 
-1. In the [Cashfree Merchant Dashboard](https://merchant.cashfree.com/), obtain your **App ID** and **Secret Key** for Sandbox (test) or Production (live). Fill `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` in `.env.local`. Set `CASHFREE_ENV=sandbox` for testing or `CASHFREE_ENV=production` for live.
-2. In the Cashfree dashboard, go to **Developers → Webhooks** and add an endpoint pointing to **`https://YOUR-DOMAIN/api/cashfree/webhook`**. Configure the webhook version and events (`PAYMENT_SUCCESS_WEBHOOK`, `PAYMENT_FAILED_WEBHOOK`).
-3. Webhooks authenticate incoming requests using HMAC-SHA256 signatures with `CASHFREE_SECRET_KEY` (or `CASHFREE_WEBHOOK_SECRET`). Both webhooks and return-url verification fetch the payment status from Cashfree and share an idempotent, row-locked settlement function. Order/payment IDs have database uniqueness constraints. Repeated deliveries and delayed failure events cannot demote a verified payment.
-4. An abandoned online order is superseded when the student initiates checkout again. “Check payment” reconciles with Cashfree after connection loss. A pending online checkout temporarily blocks manual submissions for the same fee to reduce duplicate payment risk. Do not mark captured transactions unpaid to simulate a refund: refunds are handled in Cashfree and must be reconciled operationally; automated refund processing is outside this portal’s fee-collection scope.
+1. Configure server-only `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` with the existing production credentials. Set `BETTER_AUTH_URL` to the public HTTPS origin, without a path. The API and browser checkout always use production; there is no sandbox fallback or public credential variable. API version: `2026-01-01`.
+2. Whitelist the production website domain in the [Cashfree dashboard](https://merchant.cashfree.com/). Set the public webhook endpoint to `https://YOUR-DOMAIN/api/cashfree/webhook` and subscribe to `PAYMENT_SUCCESS_WEBHOOK`, `PAYMENT_FAILED_WEBHOOK`, and `PAYMENT_USER_DROPPED_WEBHOOK`. Use the dashboard’s **Test Webhook** after deployment. The handler accepts signed connectivity probes and sample orders without changing rent records.
+3. Orders are created server-side with amounts from the fee ledger, a durable local order ID, and a stable `x-idempotency-key`. Cashfree receives `return_url` pointing to `/student/payment-status?order_id={order_id}` and `notify_url` pointing to `/api/cashfree/webhook`. Only `payment_session_id` is passed to the production checkout SDK. An interrupted create request can safely reuse the same reservation; active orders are reused until Cashfree confirms closure.
+4. Signatures use base64 HMAC-SHA256 over the timestamp header followed by the exact request bytes, using `CASHFREE_SECRET_KEY`. JSON is parsed only after constant-time signature verification. No short timestamp expiry is imposed on Cashfree retries; replay safety comes from row locks and unique payment IDs. Valid handled, duplicate, unrelated, and probe events return 200. Provider/database failures return 503 so Cashfree retries rather than losing a payment.
+5. Webhooks, return-page verification, and “Check payment” all require authoritative `PAID` order state plus a matching `SUCCESS` payment with the correct ID, INR currency, and amount before crediting rent. Pending payments are not failed merely because the browser returned or a local timer elapsed. Repeated or delayed events cannot reverse a capture or double-credit rent; excess captures are held for office refund review. The simulated `/api/payments/review-pay` route is removed, while reviewer sign-in remains unchanged.
+6. Run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` before release. Automated payment tests use mocked provider responses and an isolated in-memory database, never real charges. After deploying, run Cashfree’s signed dashboard test, then verify a real authorized payment and its receipt, including duplicate webhook delivery. Confirm the hosting platform allows anonymous POST requests to the webhook (no deployment password/challenge) and that the configured HTTPS origin matches the deployed domain. Never paste credentials or webhook signatures into logs.
+
+References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/redirect), [Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order), [Webhook signatures](https://www.cashfree.com/docs/payments/online/webhooks/overview), [Idempotency](https://www.cashfree.com/docs/payments/online/webhooks/webhook-indempotency).
 
 ### 5. Cloudinary screenshots
 
@@ -107,7 +111,7 @@ For the earlier admission migration (0001), apply migrations with `npm run db:mi
 
 1. Push this project and `package-lock.json` to your Git repository. Import it in [Vercel](https://vercel.com/new) using the **Next.js** preset.
 2. Use Node.js **22.x** or a supported newer LTS release. Install command: `npm ci`; build command: `npm run build`. Keep the default Next.js output settings.
-3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon/Cloudinary credentials and the intended Cashfree mode. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
+3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon/Cloudinary credentials and Cashfree production credentials. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
 4. Configure your stable domain. Add its exact Google callback URI and Cashfree webhook URL as described above. Avoid ephemeral preview URLs for OAuth; use a stable staging domain with its own configuration.
 5. Apply `npm run db:migrate` against the production database from a trusted terminal/CI before opening the deployment. Migrations are not executed at build or on request.
 6. Deploy. Sign in with the intended admin Google account, with `ADMIN_EMAIL` configured on the server.
@@ -125,7 +129,7 @@ npm test
 npm run build
 ```
 
-Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes real approval guards for pages/APIs, accepted-only rent, timezone boundaries, missed-month catch-up, concurrent generation, rejection/readmission, cron authentication, collection correction/voiding/idempotency, plus signatures, authorization vs capture, duplicate and out-of-order events, ownership, manual review, stale revisions, adjustments, upload validation and database uniqueness. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, Cloudinary account, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
+Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes Better Auth sessions and roles, reviewer record preservation, migrations, production-origin validation, email failures and HTML escaping, Cashfree signatures, duplicate and out-of-order events, payment ownership, amount mismatches, checkout retries and expiry. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, Cloudinary account, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
 
 ## Useful paths
 
@@ -139,9 +143,9 @@ Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in 
 ## Troubleshooting
 
 - **Google redirect mismatch:** compare the entire `/api/auth/callback/google` URI, scheme and host; restart/redeploy after changing environment variables.
-- **Login configuration failure:** check the five auth/database variables and applied migrations. The public login screen can render without credentials; login itself cannot work without them.
+- **Login configuration failure:** check the five auth/database variables and applied migrations. The login route is dynamic and requires valid runtime auth configuration. Static legal pages do not need login.
 - **Admin forbidden:** first sign in with the exact `ADMIN_EMAIL`, and confirm `ADMIN_EMAIL` is configured on the application server.
-- **Payment stays pending:** check capture settings, webhook mode/secret and delivery logs, then use Check payment on the receipt.
+- **Payment stays pending:** check production credentials, webhook signatures and delivery logs, then use Check payment on the receipt.
 - **Screenshot unavailable:** check the three Cloudinary variables and authenticated asset access; incomplete uploads can be rejected for retry.
 - **Stale fee update:** reload before retrying; another admin or payment changed the account.
 
@@ -154,8 +158,9 @@ Run `npm run db:migrate` before deploying this version. Migration 0003 adds
 `payments.attempt_status` and backfills existing online payment rows. The existing
 `status` remains the accounting/manual-review status; `attempt_status` tracks
 checkout_started, pending, paid, failed, cancelled and abandoned separately.
-Cancellation and expiry release the existing pending-payment reservation.
-Expiry is enforced on student reads and payment mutations after 15 minutes;
+Cashfree orders expire after 30 minutes. Active provider orders are reused; a new
+checkout is allowed only after provider-confirmed closure. Local timers and browser
+cancellation never establish whether money moved;
 the open payment page refreshes every 15 seconds and on window focus.
 Signed webhooks and server capture verification can reconcile late captures.
 Captured payments that exceed the remaining fee are recorded as paid attempts
@@ -173,7 +178,5 @@ allowlist on protected requests, so removal also revokes admin access.
 Apply `npm run db:migrate` before deploying this update. Migration 0006 changes
 student courses to text and adds `onboarding_incomplete` as the default approval
 status. Existing pending students without profiles move to that status; submitted
-profiles and accepted/rejected decisions are preserved. Submitting the four-field
-onboarding form sets the student to pending. The pending list requires both a
-submitted profile and pending status. Year is shown from legacy profiles when
-available; the current onboarding form does not collect it.
+profiles and accepted/rejected decisions are preserved. Submitting the onboarding form sets the student to pending. The pending list requires both a
+submitted profile and pending status. The current form collects name, phone, course, year, and branch/trade.

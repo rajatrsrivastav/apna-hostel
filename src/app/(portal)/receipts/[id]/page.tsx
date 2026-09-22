@@ -1,4 +1,3 @@
-import { expireProviderAttempts } from "@/lib/ledger";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -20,7 +19,6 @@ export default async function Receipt({
   params: Promise<{ id: string }>;
 }) {
   const user = await requireUser();
-  await expireProviderAttempts(user.id);
   const { id } = await params;
   const [row] = await getDb()
     .select({ payment: payments, fee: feeDues, name: users.name })

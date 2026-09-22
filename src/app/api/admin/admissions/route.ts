@@ -7,7 +7,7 @@ import { mutation, jsonBody } from "@/lib/http";
 import { AppError } from "@/lib/errors";
 import { idSchema } from "@/lib/validation";
 import { rateLimit } from "@/lib/rate-limit";
-import { configuredRole } from "@/lib/env";
+import { configuredRole, publicOrigin } from "@/lib/env";
 import { generateMonthlyRent } from "@/lib/rent";
 export const POST = mutation(async (req) => {
   const admin = await requireAdmin();
@@ -64,16 +64,16 @@ export const POST = mutation(async (req) => {
 
   if (result?.newlyAccepted) {
     const { sendEmail, buildStudentApprovedEmail } = await import("@/lib/email");
-    const dashboardUrl = new URL("/student", req.url).toString();
+    const dashboardUrl = `${publicOrigin()}/student`;
     
-    sendEmail({
+    await sendEmail({
       to: result.student.email,
       ...buildStudentApprovedEmail({
         studentName: result.student.name,
         dashboardUrl,
       }),
     }).catch((err) => {
-      console.error("[Admissions] Failed to send approval email:", err);
+      console.error("[Admissions] Failed to send approval email:", err instanceof Error ? err.name : "UnknownError");
     });
   }
   return Response.json({ ok: true });

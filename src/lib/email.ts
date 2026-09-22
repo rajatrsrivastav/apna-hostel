@@ -1,12 +1,6 @@
 import "server-only";
 import { Resend } from "resend";
 
-function getResendClient() {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return null;
-  return new Resend(apiKey);
-}
-
 export type EmailPayload = {
   to: string;
   subject: string;
@@ -14,23 +8,22 @@ export type EmailPayload = {
   text: string;
 };
 
-export async function sendEmail({ to, subject, html, text }: EmailPayload): Promise<{
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+}: EmailPayload): Promise<{
   id?: string;
   success: boolean;
 }> {
-  const resend = getResendClient();
-  const from =
-    process.env.RESEND_FROM_EMAIL?.trim() ||
-    "Apna Hostel <onboarding@resend.dev>";
-
-  if (!resend) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        `[Email Mock] To: ${to} | Subject: "${subject}" | (RESEND_API_KEY not configured)`,
-      );
-    }
-    return { id: "mock-delivered", success: true };
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.RESEND_FROM_EMAIL?.trim();
+  if (!apiKey || !from) {
+    console.error("[Email] RESEND_API_KEY and RESEND_FROM_EMAIL are required.");
+    return { success: false };
   }
+  const resend = new Resend(apiKey);
 
   try {
     const { data, error } = await resend.emails.send({
@@ -42,18 +35,32 @@ export async function sendEmail({ to, subject, html, text }: EmailPayload): Prom
     });
 
     if (error) {
-      console.error("[Email Error] Resend returned error:", error.message);
+      console.error("[Email] Provider rejected delivery.");
       return { success: false };
     }
 
-    return { id: data?.id, success: true };
+    return { id: data?.id, success: Boolean(data?.id) };
   } catch (err) {
     console.error(
       "[Email Error] Failed to send email via Resend:",
-      err instanceof Error ? err.message : String(err),
+      err instanceof Error ? err.name : "UnknownError",
     );
     return { success: false };
   }
+}
+
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character]!,
+  );
 }
 
 // Reusable email wrapper with Apna Hostel branding
@@ -76,7 +83,7 @@ function wrapEmailTemplate({
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
 </head>
 <body style="margin: 0; padding: 24px; background-color: #f6f8f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b;">
   <table width="100%" border="0" cellspacing="0" cellpadding="0">
@@ -93,8 +100,8 @@ function wrapEmailTemplate({
           <!-- Body Title -->
           <tr>
             <td style="padding-top: 24px;">
-              <h1 style="font-size: 22px; font-weight: 600; color: #0f172a; margin: 0 0 6px 0; line-height: 1.3;">${title}</h1>
-              <p style="font-size: 14px; color: #64748b; margin: 0 0 20px 0;">${subtitle}</p>
+              <h1 style="font-size: 22px; font-weight: 600; color: #0f172a; margin: 0 0 6px 0; line-height: 1.3;">${escapeHtml(title)}</h1>
+              <p style="font-size: 14px; color: #64748b; margin: 0 0 20px 0;">${escapeHtml(subtitle)}</p>
             </td>
           </tr>
           <!-- Content Card -->
@@ -109,7 +116,7 @@ function wrapEmailTemplate({
               ? `
           <tr>
             <td align="center" style="padding-top: 28px; padding-bottom: 12px;">
-              <a href="${buttonUrl}" style="display: inline-block; background-color: #28654c; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 32px; border-radius: 9999px; box-shadow: 0 2px 4px rgba(40,101,76,0.2);">${buttonText}</a>
+              <a href="${escapeHtml(buttonUrl)}" style="display: inline-block; background-color: #28654c; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 32px; border-radius: 9999px; box-shadow: 0 2px 4px rgba(40,101,76,0.2);">${escapeHtml(buttonText)}</a>
             </td>
           </tr>
           `
@@ -152,16 +159,16 @@ export function buildRentGeneratedEmail({
   const contentHtml = `
     <div style="background-color: #edf3e7; border: 1px solid #d9e4d4; border-radius: 16px; padding: 20px; margin-bottom: 8px;">
       <div style="font-size: 13px; color: #475569; font-weight: 500;">Current Month Rent / इस महीने का किराया</div>
-      <div style="font-size: 28px; font-weight: 700; color: #0f172a; margin: 4px 0 12px 0;">${currentRentFormatted}</div>
+      <div style="font-size: 28px; font-weight: 700; color: #0f172a; margin: 4px 0 12px 0;">${escapeHtml(currentRentFormatted)}</div>
       <div style="font-size: 13px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px; display: flex; justify-content: space-between;">
-        <span>Previous Due / पिछला बाकी: <strong>${previousDueFormatted}</strong></span>
+        <span>Previous Due / पिछला बाकी: <strong>${escapeHtml(previousDueFormatted)}</strong></span>
       </div>
       <div style="font-size: 14px; color: #0f172a; padding-top: 8px; font-weight: 600;">
-        Total Outstanding / कुल बाकी: <span style="color: #28654c;">${totalDueFormatted}</span>
+        Total Outstanding / कुल बाकी: <span style="color: #28654c;">${escapeHtml(totalDueFormatted)}</span>
       </div>
     </div>
     <div style="font-size: 12px; color: #64748b; margin-top: 8px;">
-      Due Date: <strong>${dueDate}</strong>. Pay online via UPI/Card or submit manual UPI receipt.
+      Due Date: <strong>${escapeHtml(dueDate)}</strong>. Pay online via UPI/Card or submit manual UPI receipt.
     </div>
   `;
 
@@ -207,9 +214,9 @@ export function buildPaymentSuccessEmail({
   const contentHtml = `
     <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 16px; padding: 20px; text-align: center;">
       <div style="font-size: 14px; color: #065f46; font-weight: 500;">Amount Received / प्राप्त राशि</div>
-      <div style="font-size: 32px; font-weight: 700; color: #047857; margin: 6px 0 12px 0;">${amountFormatted}</div>
+      <div style="font-size: 32px; font-weight: 700; color: #047857; margin: 6px 0 12px 0;">${escapeHtml(amountFormatted)}</div>
       <div style="font-size: 13px; color: #047857;">
-        Date: <strong>${paymentDate}</strong> · Status: <strong>Verified & Paid</strong>
+        Date: <strong>${escapeHtml(paymentDate)}</strong> · Status: <strong>Verified & Paid</strong>
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 16px; line-height: 1.5;">
@@ -259,7 +266,7 @@ export function buildPaymentIncompleteEmail({
   const contentHtml = `
     <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 16px; padding: 20px;">
       <div style="font-size: 13px; color: #991b1b; font-weight: 500;">Attempted Amount</div>
-      <div style="font-size: 24px; font-weight: 700; color: #b91c1c; margin: 4px 0;">${amountFormatted}</div>
+      <div style="font-size: 24px; font-weight: 700; color: #b91c1c; margin: 4px 0;">${escapeHtml(amountFormatted)}</div>
       <p style="font-size: 13px; color: #7f1d1d; margin: 8px 0 0 0; line-height: 1.5;">
         ${
           isFailed
@@ -312,9 +319,9 @@ export function buildOverdueReminderEmail({
   const contentHtml = `
     <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 16px; padding: 20px;">
       <div style="font-size: 13px; color: #92400e; font-weight: 500;">Total Outstanding / कुल बकाया राशि</div>
-      <div style="font-size: 28px; font-weight: 700; color: #b45309; margin: 4px 0 10px 0;">${totalDueFormatted}</div>
+      <div style="font-size: 28px; font-weight: 700; color: #b45309; margin: 4px 0 10px 0;">${escapeHtml(totalDueFormatted)}</div>
       <div style="font-size: 13px; color: #78350f;">
-        Original Due Date: <strong>${dueDate}</strong>
+        Original Due Date: <strong>${escapeHtml(dueDate)}</strong>
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 16px; line-height: 1.5;">
@@ -360,9 +367,9 @@ export function buildManualPaymentSubmittedEmail({
   const contentHtml = `
     <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 16px; padding: 20px; text-align: center;">
       <div style="font-size: 14px; color: #92400e; font-weight: 500;">Amount Submitted / जमा राशि</div>
-      <div style="font-size: 32px; font-weight: 700; color: #b45309; margin: 6px 0 12px 0;">${amountFormatted}</div>
+      <div style="font-size: 32px; font-weight: 700; color: #b45309; margin: 6px 0 12px 0;">${escapeHtml(amountFormatted)}</div>
       <div style="font-size: 13px; color: #78350f;">
-        Date: <strong>${paymentDate}</strong> · Status: <strong>Pending Verification</strong>
+        Date: <strong>${escapeHtml(paymentDate)}</strong> · Status: <strong>Pending Verification</strong>
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 16px; line-height: 1.5;">
@@ -410,9 +417,9 @@ export function buildAdminNewPaymentAlert({
   const contentHtml = `
     <div style="background-color: #edf3e7; border: 1px solid #d9e4d4; border-radius: 16px; padding: 20px;">
       <div style="font-size: 13px; color: #475569; font-weight: 500;">Student</div>
-      <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 4px 0 12px 0;">${studentName}</div>
+      <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 4px 0 12px 0;">${escapeHtml(studentName)}</div>
       <div style="font-size: 13px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px;">
-        Amount: <strong>${amountFormatted}</strong> · Date: <strong>${paymentDate}</strong>
+        Amount: <strong>${escapeHtml(amountFormatted)}</strong> · Date: <strong>${escapeHtml(paymentDate)}</strong>
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 14px; line-height: 1.5;">
@@ -460,9 +467,9 @@ export function buildPaymentRejectedEmail({
   const contentHtml = `
     <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 16px; padding: 20px;">
       <div style="font-size: 13px; color: #991b1b; font-weight: 500;">Rejected Amount / अस्वीकृत राशि</div>
-      <div style="font-size: 24px; font-weight: 700; color: #b91c1c; margin: 4px 0 12px 0;">${amountFormatted}</div>
+      <div style="font-size: 24px; font-weight: 700; color: #b91c1c; margin: 4px 0 12px 0;">${escapeHtml(amountFormatted)}</div>
       <div style="font-size: 13px; color: #7f1d1d; border-top: 1px dashed #fca5a5; padding-top: 12px;">
-        <strong>Reason:</strong> ${reason}
+        <strong>Reason:</strong> ${escapeHtml(reason)}
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 14px; line-height: 1.5;">

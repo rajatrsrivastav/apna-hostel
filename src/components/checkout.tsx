@@ -35,7 +35,6 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
   const [preview, setPreview] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [payError, setPayError] = useState("");
-  const [paySuccess, setPaySuccess] = useState("");
   const action = useAction(),
     router = useRouter();
     
@@ -88,7 +87,6 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
     if (isLoading) return;
     setIsLoading(true);
     setPayError("");
-    setPaySuccess("");
 
     try {
       // 1. Create order via our backend
@@ -108,45 +106,19 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
 
       const data = await res.json();
 
-      // 2. CRITICAL: Validate payment session ID before touching the SDK
-      const paymentSessionId =
-        data?.payment_session_id || data?.paymentSessionId;
-      if (!data || !paymentSessionId) {
-        console.error(
-          "CASHFREE ERROR: Missing payment_session_id in backend response. Received:",
-          data,
-        );
-        if (typeof alert !== "undefined") {
-          alert(
-            "Failed to initialize payment. Check the console for details.",
-          );
-        }
-        setIsLoading(false);
+      if (data.alreadyPaid && data.orderId) {
+        router.push(`/student/payment-status?order_id=${encodeURIComponent(data.orderId)}`);
         return;
       }
-
-      // 3. Dynamically load Cashfree SDK (SSR-safe, no global init)
-      const env =
-        data.environment ||
-        (process.env.NEXT_PUBLIC_CASHFREE_ENV === "production"
-          ? "production"
-          : "sandbox");
-      const { load } = await import("@cashfreepayments/cashfree-js");
-      const cashfree = await load({ mode: env });
-
-      // 4. Trigger hosted checkout — _self forces a hard redirect,
-      //    avoiding all DOM/CSS conflicts from the in-page modal.
-      try {
-        await cashfree.checkout({
-          paymentSessionId,
-          redirectTarget: "_self",
-        });
-      } catch (sdkErr) {
-        console.error("Cashfree SDK failed to launch:", sdkErr);
-        if (typeof alert !== "undefined") {
-          alert("Payment gateway failed to open.");
-        }
+      const paymentSessionId = data?.payment_session_id;
+      if (typeof paymentSessionId !== "string" || !paymentSessionId) {
+        throw new Error("Could not start checkout. Please try again.");
       }
+      const { load } = await import("@cashfreepayments/cashfree-js");
+      const cashfree = await load({ mode: "production" });
+      if (!cashfree) throw new Error("Payment gateway could not load. Please try again.");
+      const result = await cashfree.checkout({ paymentSessionId, redirectTarget: "_self" });
+      if (result?.error) throw new Error("Payment gateway could not open. Please try again.");
 
       // Browser navigates away on success — no further code runs.
     } catch (error: unknown) {
@@ -338,7 +310,7 @@ export function Checkout({ dues }: { dues: PayableFee[] }) {
           </form>
         </Card>
       )}
-      <Feedback error={payError || action.error} success={paySuccess || action.success} />
+      <Feedback error={payError || action.error} success={action.success} />
       <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="size-4" />
         Safe payments. Private screenshots.

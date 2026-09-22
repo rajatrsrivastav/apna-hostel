@@ -1,9 +1,6 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   poweredByHeader: false,
-  env: {
-    NEXT_PUBLIC_CASHFREE_ENV: process.env.CASHFREE_ENV || "sandbox",
-  },
   async headers() {
     return [
       {
@@ -19,7 +16,7 @@ const config: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "frame-ancestors 'self' https://*.cashfree.com; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com; connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com; upgrade-insecure-requests",
+              "frame-ancestors 'self' https://*.cashfree.com; object-src 'none'; base-uri 'self'; form-action 'self' https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://payments.cashfree.com; connect-src 'self' https://api.cashfree.com https://payments.cashfree.com; upgrade-insecure-requests",
           },
           ...(process.env.NODE_ENV === "production"
             ? [

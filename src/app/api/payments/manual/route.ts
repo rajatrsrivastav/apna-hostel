@@ -12,7 +12,7 @@ import {
   idSchema,
   todayIndia,
 } from "@/lib/validation";
-import { expireProviderAttempts, lockFee, feeBalance } from "@/lib/ledger";
+import { lockFee, feeBalance } from "@/lib/ledger";
 import { storage, uploadScreenshot, validateImage } from "@/lib/storage";
 import { notifyManualPaymentSubmitted } from "@/lib/notifications";
 export const runtime = "nodejs";
@@ -48,7 +48,6 @@ export const POST = mutation(async (req) => {
   await getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, values.feeDueId);
     if (fee.userId !== user.id) throw new AppError("Fee not found.", 404);
-    await expireProviderAttempts(user.id, tx, fee.id);
     const [pending] = await tx
       .select()
       .from(payments)
@@ -103,7 +102,7 @@ export const POST = mutation(async (req) => {
   try {
     await notifyManualPaymentSubmitted(id);
   } catch (err) {
-    console.error("[Notification] notifyManualPaymentSubmitted failed:", err);
+    console.error("[Notification] notifyManualPaymentSubmitted failed:", err instanceof Error ? err.name : "UnknownError");
   }
   return Response.json({ id, status: "pending" });
 });

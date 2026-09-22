@@ -7,15 +7,13 @@ import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
-import { fetchOrderPayments } from "@/lib/cashfree";
-import { expireProviderAttempts, settleProviderPayment } from "@/lib/ledger";
+import { verifyCashfreePayment } from "@/lib/payment-verification";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/reconcile", 20);
   const { paymentId } = z
     .object({ paymentId: idSchema })
     .parse(await jsonBody(req));
-  await expireProviderAttempts(user.id);
   const [record] = await getDb()
     .select()
     .from(payments)
@@ -24,23 +22,14 @@ export const POST = mutation(async (req) => {
     throw new AppError("Payment not found.", 404);
   if (!record.cashfreeOrderId)
     throw new AppError("This is not an online payment.");
-  const attempts = await fetchOrderPayments(record.cashfreeOrderId);
-  const captured = attempts.find((p) => p.status === "SUCCESS");
-  if (captured) {
-    const updated = await settleProviderPayment(captured);
-    return Response.json({ status: updated.status });
-  }
-  const failed = attempts.find((p) => p.status === "FAILED");
-  if (failed && !attempts.some((p) => p.status === "PENDING")) {
-    const updated = await settleProviderPayment(failed);
-    return Response.json({
-      status: updated.status,
-      message: "Payment failed. You can try paying again.",
-    });
-  }
+  const payment = await verifyCashfreePayment(record.cashfreeOrderId);
   return Response.json({
-    status: record.status,
+    status: payment.status,
     message:
-      "No completed payment yet. You can retry the same checkout safely.",
+      payment.attemptStatus === "paid"
+        ? payment.status === "verified"
+          ? "Payment verified."
+          : "Payment received; office review required. Please do not pay again."
+        : "Payment is not confirmed yet. Check again before making another payment.",
   });
 });

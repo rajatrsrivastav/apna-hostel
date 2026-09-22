@@ -12,6 +12,6 @@ declare module "@cashfreepayments/cashfree-js" {
     }>;
   }
 
-  export function load(options: { mode: string }): Promise<CashfreeInstance>;
+  export function load(options: { mode: "production" }): Promise<CashfreeInstance>;
 }
 

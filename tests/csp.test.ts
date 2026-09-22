@@ -18,13 +18,13 @@ describe("Next.js Content-Security-Policy headers", () => {
     const cspValue = cspHeader?.value ?? "";
 
     expect(cspValue).toContain(
-      "form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com;",
+      "form-action 'self' https://api.cashfree.com https://payments.cashfree.com;",
     );
     expect(cspValue).toContain(
-      "frame-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com;",
+      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://payments.cashfree.com;",
     );
     expect(cspValue).toContain(
-      "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com;",
+      "connect-src 'self' https://api.cashfree.com https://payments.cashfree.com;",
     );
   });
 });

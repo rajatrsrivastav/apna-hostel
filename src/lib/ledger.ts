@@ -1,14 +1,11 @@
 import "server-only";
-import { and, eq, sql, lte } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { feeDues, payments } from "@/db/schema";
 import { AppError } from "./errors";
 import { balance } from "./money";
 import type { ProviderPayment } from "./cashfree";
-import {
-  notifyPaymentSuccess,
-  notifyPaymentIncomplete,
-} from "./notifications";
+import { notifyPaymentSuccess, notifyPaymentIncomplete } from "./notifications";
 export type Transaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
@@ -41,6 +38,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     .where(eq(payments.cashfreeOrderId, provider.order_id));
   if (!record)
     throw new AppError("Order not yet recorded. Retry notification.", 503);
+  let changed = false;
   const result = await db.transaction(async (tx) => {
     const fee = await lockFee(tx, record.feeDueId);
     const [payment] = await tx
@@ -62,12 +60,24 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       return payment;
     }
     // Failed attempts are not terminal for an order: Cashfree can retry the same order.
-    if (provider.status === "FAILED") {
+    if (
+      ["FAILED", "USER_DROPPED", "VOID", "CANCELLED"].includes(provider.status)
+    ) {
+      const attemptStatus =
+        provider.status === "USER_DROPPED" || provider.status === "CANCELLED"
+          ? "cancelled"
+          : "failed";
+      if (
+        payment.status === "failed" &&
+        payment.attemptStatus === attemptStatus
+      )
+        return payment;
+      changed = true;
       const [failed] = await tx
         .update(payments)
         .set({
           status: "failed",
-          attemptStatus: "failed",
+          attemptStatus,
           reviewNote: "Online payment failed. You can try again.",
         })
         .where(eq(payments.id, payment.id))
@@ -75,17 +85,33 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       return failed;
     }
     if (provider.status !== "SUCCESS") {
-      if (provider.status === "PENDING" && payment.status === "pending") {
-        await tx
+      if (provider.status === "PENDING") {
+        const [otherPending] = await tx
+          .select({ id: payments.id })
+          .from(payments)
+          .where(
+            and(
+              eq(payments.feeDueId, payment.feeDueId),
+              eq(payments.status, "pending"),
+              ne(payments.id, payment.id),
+            ),
+          );
+        const [updated] = await tx
           .update(payments)
-          .set({ attemptStatus: "pending" })
-          .where(eq(payments.id, payment.id));
+          .set({
+            attemptStatus: "pending",
+            ...(!otherPending ? { status: "pending" as const } : {}),
+          })
+          .where(eq(payments.id, payment.id))
+          .returning();
+        return updated;
       }
       return payment;
     }
     // Record real excess captures for office refund review, without crediting rent twice.
     const remaining = await feeBalance(tx, fee);
     const excess = payment.amount > remaining;
+    changed = true;
     const [updated] = await tx
       .update(payments)
       .set({
@@ -102,45 +128,27 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     return updated;
   });
 
-  if (result.status === "verified" && result.attemptStatus === "paid") {
+  if (
+    changed &&
+    result.status === "verified" &&
+    result.attemptStatus === "paid"
+  ) {
     try {
       await notifyPaymentSuccess(result.id);
     } catch (err) {
-      console.error("[Notification] notifyPaymentSuccess failed:", err);
+      console.error("[Notification] notifyPaymentSuccess failed:", err instanceof Error ? err.name : "UnknownError");
     }
-  } else if (result.status === "failed" && result.attemptStatus === "failed") {
+  } else if (
+    changed &&
+    result.status === "failed" &&
+    result.attemptStatus === "failed"
+  ) {
     try {
       await notifyPaymentIncomplete(result.id, "failed");
     } catch (err) {
-      console.error("[Notification] notifyPaymentIncomplete failed:", err);
+      console.error("[Notification] notifyPaymentIncomplete failed:", err instanceof Error ? err.name : "UnknownError");
     }
   }
 
   return result;
-}
-
-// Conditional updates cannot overwrite a capture, even when expiry races a webhook.
-export async function expireProviderAttempts(
-  userId: string,
-  db: ReturnType<typeof getDb> | Transaction = getDb(),
-  feeDueId?: string,
-) {
-  await db
-    .update(payments)
-    .set({
-      status: "failed",
-      attemptStatus: "abandoned",
-      reviewNote: "Payment checkout expired. You can try again.",
-    })
-    .where(
-      and(
-        eq(payments.userId, userId),
-        feeDueId ? eq(payments.feeDueId, feeDueId) : undefined,
-        eq(payments.method, "cashfree"),
-        eq(payments.status, "pending"),
-        feeDueId
-          ? undefined
-          : lte(payments.createdAt, new Date(Date.now() - 15 * 60 * 1000)),
-      ),
-    );
 }

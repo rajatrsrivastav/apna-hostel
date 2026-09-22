@@ -5,8 +5,8 @@ import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users, studentProfiles, accounts, payments } from "@/db/schema";
-import { REVIEW_USER_ID, reviewLoginEnabled } from "./env";
+import { users, studentProfiles, accounts } from "@/db/schema";
+import { REVIEW_USER_ID, reviewLoginEnabled, getAdminEmails } from "./env";
 import { AppError } from "./errors";
 import { checkOrigin } from "./http";
 import { rateLimit } from "./rate-limit";
@@ -72,11 +72,7 @@ async function reviewStudent(email: string) {
         trade: "Test",
         studyYear: "Test",
       })
-      .onConflictDoUpdate({
-        target: studentProfiles.userId,
-        set: { phone: "9999999999" },
-      });
-    await tx.delete(payments).where(eq(payments.userId, user.id));
+      .onConflictDoNothing();
     await generateMonthlyRent(user.id, new Date(), tx);
     return user;
   });
@@ -117,7 +113,7 @@ export const reviewLoginPlugin = {
           !z.email().safeParse(email).success ||
           !password ||
           password.length < 16 ||
-          email === process.env.ADMIN_EMAIL?.trim().toLowerCase()
+          getAdminEmails().includes(email)
         )
           throw new APIError("SERVICE_UNAVAILABLE", {
             message: "Review login is unavailable.",

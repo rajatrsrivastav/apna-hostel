@@ -64,13 +64,13 @@ export const POST = mutation(async (req) => {
     try {
       await notifyPaymentSuccess(initial.id);
     } catch (err) {
-      console.error("[Notification] notifyPaymentSuccess failed:", err);
+      console.error("[Notification] notifyPaymentSuccess failed:", err instanceof Error ? err.name : "UnknownError");
     }
   } else if (values.decision === "rejected") {
     try {
       await notifyPaymentRejected(initial.id);
     } catch (err) {
-      console.error("[Notification] notifyPaymentRejected failed:", err);
+      console.error("[Notification] notifyPaymentRejected failed:", err instanceof Error ? err.name : "UnknownError");
     }
   }
   return Response.json({ ok: true });

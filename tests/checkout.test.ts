@@ -68,10 +68,7 @@ function buttons(
     element.type === "button" ||
     element.type === Button ||
     typeof element.props?.onClick === "function";
-  return [
-    ...(isButton ? [element] : []),
-    ...buttons(element.props?.children),
-  ];
+  return [...(isButton ? [element] : []), ...buttons(element.props?.children)];
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -91,7 +88,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (path: string) =>
     Response.json(
       path.includes("/api/payments/order")
-        ? { orderId: "order-123", paymentSessionId: "session-123" }
+        ? { orderId: "order-123", payment_session_id: "session-123" }
         : { id: "payment-1", status: "verified" },
     ),
   );
@@ -125,9 +122,39 @@ it("initiating online checkout calls order endpoint and launches hosted checkout
   await initialButtons[0].props.onClick!();
   await vi.advanceTimersByTimeAsync(0);
   expect(
-    fetchMock.mock.calls.some(([path]) => String(path).includes("/api/payments/order")),
+    fetchMock.mock.calls.some(([path]) =>
+      String(path).includes("/api/payments/order"),
+    ),
   ).toBe(true);
   // With _self redirect, the browser navigates away — no verify call or router.push
   const { load } = await import("@cashfreepayments/cashfree-js");
-  expect(load).toHaveBeenCalled();
+  expect(load).toHaveBeenCalledWith({ mode: "production" });
+  const instance = await vi.mocked(load).mock.results[0].value;
+  expect(instance.checkout).toHaveBeenCalledWith({
+    paymentSessionId: "session-123",
+    redirectTarget: "_self",
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("does not launch checkout without a server-issued payment session", async () => {
+  fetchMock.mockResolvedValueOnce(Response.json({ orderId: "order-123" }));
+  await buttons(render())[0].props.onClick!();
+  const { load } = await import("@cashfreepayments/cashfree-js");
+  expect(load).not.toHaveBeenCalled();
+  expect(state.values).toContain("Could not start checkout. Please try again.");
+});
+
+it("shows SDK-returned errors without treating checkout as a successful payment", async () => {
+  const { load } = await import("@cashfreepayments/cashfree-js");
+  vi.mocked(load).mockResolvedValueOnce({
+    checkout: vi
+      .fn()
+      .mockResolvedValue({ error: { message: "Checkout unavailable" } }),
+  });
+  await buttons(render())[0].props.onClick!();
+  expect(state.values).toContain(
+    "Payment gateway could not open. Please try again.",
+  );
+  expect(state.push).not.toHaveBeenCalled();
 });

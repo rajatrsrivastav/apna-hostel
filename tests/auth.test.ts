@@ -143,3 +143,26 @@ it("review login returns 404 when disabled", async () => {
     }
   }
 });
+
+it("reviewer re-login preserves existing profile and payment records", async () => {
+  const { eq } = await import("drizzle-orm");
+  const { REVIEW_USER_ID } = await import("@/lib/env");
+  const db = drizzle(client, { schema });
+  process.env.ENABLE_CASHFREE_REVIEW_LOGIN = "true";
+  process.env.CASHFREE_REVIEW_EMAIL = "review-preservation@example.test";
+  process.env.CASHFREE_REVIEW_PASSWORD = "isolated-review-password-for-tests";
+  const login = () => getAuth().handler(new Request("http://localhost:3000/api/auth/review-login", {
+    method: "POST", headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+    body: JSON.stringify({ email: process.env.CASHFREE_REVIEW_EMAIL, password: process.env.CASHFREE_REVIEW_PASSWORD }),
+  }));
+  expect((await login()).status).toBe(200);
+  const [fee] = await db.select().from(schema.feeDues).where(eq(schema.feeDues.userId, REVIEW_USER_ID));
+  await db.insert(schema.payments).values({ id: "review-preserved-payment", userId: REVIEW_USER_ID, feeDueId: fee.id, amount: 100, method: "cashfree", status: "verified", attemptStatus: "paid", cashfreeOrderId: "review-preserved-order" });
+  await db.update(schema.studentProfiles).set({ phone: "9876543210" }).where(eq(schema.studentProfiles.userId, REVIEW_USER_ID));
+  expect((await login()).status).toBe(200);
+  expect(await db.select().from(schema.payments).where(eq(schema.payments.id, "review-preserved-payment"))).toHaveLength(1);
+  expect((await db.select().from(schema.studentProfiles).where(eq(schema.studentProfiles.userId, REVIEW_USER_ID)))[0].phone).toBe("9876543210");
+  delete process.env.ENABLE_CASHFREE_REVIEW_LOGIN;
+  delete process.env.CASHFREE_REVIEW_EMAIL;
+  delete process.env.CASHFREE_REVIEW_PASSWORD;
+});

@@ -2,7 +2,6 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import type { Transaction } from "./ledger";
-export const MONTHLY_RENT = 100_000;
 export function indiaMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
