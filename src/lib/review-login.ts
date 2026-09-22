@@ -1,11 +1,11 @@
 import "server-only";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { users, studentProfiles, accounts } from "@/db/schema";
+import { users, studentProfiles, accounts, feeDues, payments } from "@/db/schema";
 import { REVIEW_USER_ID, reviewLoginEnabled, getAdminEmails } from "./env";
 import { AppError } from "./errors";
 import { checkOrigin } from "./http";
@@ -39,9 +39,25 @@ async function reviewStudent(email: string) {
         role: "student",
         approvalStatus: "accepted",
         acceptedAt: new Date(),
-        monthlyRent: 100000,
+        monthlyRent: 10000,
       })
       .onConflictDoNothing();
+    await tx
+      .update(users)
+      .set({ monthlyRent: 10000 })
+      .where(eq(users.id, REVIEW_USER_ID));
+    await tx
+      .update(feeDues)
+      .set({ amount: 10000 })
+      .where(eq(feeDues.userId, REVIEW_USER_ID));
+    await tx
+      .delete(payments)
+      .where(
+        and(
+          eq(payments.userId, REVIEW_USER_ID),
+          ne(payments.status, "verified"),
+        ),
+      );
     const [user] = await tx
       .select()
       .from(users)
