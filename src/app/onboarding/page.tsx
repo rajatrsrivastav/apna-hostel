@@ -1,3 +1,4 @@
+import { LegalFooter } from "@/components/merchant-legal";
 import { redirect } from "next/navigation";
 import { currentUser, homePath } from "@/lib/access";
 import { Brand } from "@/components/brand";
@@ -23,6 +24,7 @@ export default async function Onboarding() {
         </p>
         <OnboardingForm name={user.name} />
       </div>
+      <LegalFooter />
     </main>
   );
 }

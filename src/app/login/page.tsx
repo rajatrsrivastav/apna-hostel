@@ -1,3 +1,4 @@
+import { MerchantLegal } from "@/components/merchant-legal";
 import { currentUser, homePath } from "@/lib/access";
 import { redirect } from "next/navigation";
 import { Brand } from "@/components/brand";
@@ -117,6 +118,7 @@ export default async function Login({
           <ShieldCheck className="size-3.5" />
           Secure Google sign-in
         </span>
+        <MerchantLegal />
       </footer>
     </div>
   );

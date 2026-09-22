@@ -1,3 +1,4 @@
+import { LegalFooter } from "@/components/merchant-legal";
 import { Logout } from "@/components/logout";
 import { ApprovalRefresh } from "@/components/approval-refresh";
 import { redirect } from "next/navigation";
@@ -36,6 +37,7 @@ export default async function ApprovalPage() {
           )}
         </h1>
         <Logout />
+        <LegalFooter />
       </div>
     </main>
   );

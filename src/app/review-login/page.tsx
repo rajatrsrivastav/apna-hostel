@@ -1,3 +1,4 @@
+import { LegalFooter } from "@/components/merchant-legal";
 import { notFound } from "next/navigation";
 import { reviewLoginEnabled } from "@/lib/env";
 import { Brand } from "@/components/brand";
@@ -18,6 +19,7 @@ export default function ReviewLogin() {
         </p>
         <ReviewSignIn />
       </div>
+      <LegalFooter />
     </main>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { MerchantLegal } from "@/components/merchant-legal";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -176,6 +177,7 @@ export function Shell({
             Safe. Simple. Sorted.
             <ArrowUpRight className="ml-2 size-3.5" />
           </span>
+          <MerchantLegal />
         </footer>
       </div>
       <nav
