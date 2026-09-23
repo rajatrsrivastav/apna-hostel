@@ -21,7 +21,6 @@ All values are server-side; `.env.example` contains empty placeholders, not cred
 | Authentication | `BETTER_AUTH_URL` (canonical public HTTPS origin, no path/query/tunnel), `BETTER_AUTH_SECRET` (at least 32 characters), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | Administration | `ADMIN_EMAILS`, or legacy `ADMIN_EMAIL` when the former is unset |
 | Cashfree | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` — production credentials |
-| Private screenshots | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` |
 | Email | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` — verified sender domain |
 | Scheduled jobs | `CRON_SECRET` — at least 32 random characters |
 | Reviewer login | `ENABLE_CASHFREE_REVIEW_LOGIN=true`, `CASHFREE_REVIEW_EMAIL`, `CASHFREE_REVIEW_PASSWORD` (at least 16 characters, distinct from admin identity) |
@@ -53,6 +52,6 @@ Order amounts come from the locked fee ledger. A durable reservation and stable 
 
 ## Remaining external checks
 
-The local configuration check found missing `BETTER_AUTH_URL` and `CRON_SECRET`. No production hostname or Vercel project configuration has been verified in this pass. Live OAuth, Cashfree dashboard delivery/real charges, Resend delivery, Cloudinary access, cron execution, and deployed migration state require verification against the deployment. The repository is not deployed by this cleanup task.
+The local configuration check found missing `BETTER_AUTH_URL` and `CRON_SECRET`. No production hostname or Vercel project configuration has been verified in this pass. Live OAuth, Cashfree dashboard delivery/real charges, Resend delivery, cron execution, and deployed migration state require verification against the deployment. The repository is not deployed by this cleanup task.
 
 References: [Vercel Node versions](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions), [Vercel cron management](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [Cashfree Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order).

@@ -21,7 +21,13 @@ export type PayableFee = {
   pending?: { id: string; method: string };
 };
 
-export function Checkout({ dues, compact = false }: { dues: PayableFee[]; compact?: boolean }) {
+export function Checkout({
+  dues,
+  compact = false,
+}: {
+  dues: PayableFee[];
+  compact?: boolean;
+}) {
   const [selected, setSelected] = useState(dues[0]?.id ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const [payError, setPayError] = useState("");
@@ -60,6 +66,7 @@ export function Checkout({ dues, compact = false }: { dues: PayableFee[]; compac
     paymentLock.current = true;
     setIsLoading(true);
     setPayError("");
+    let checkoutOrderId: string | null = null;
 
     try {
       // 1. Create order via our backend
@@ -83,27 +90,49 @@ export function Checkout({ dues, compact = false }: { dues: PayableFee[]; compac
         throw new Error("Could not start checkout. Please try again.");
 
       if (data.alreadyPaid) {
-        router.replace(`/student/history?order_id=${encodeURIComponent(orderId)}`);
+        router.replace(
+          `/student/history?order_id=${encodeURIComponent(orderId)}`,
+        );
         return;
       }
       const paymentSessionId = data?.payment_session_id;
       if (typeof paymentSessionId !== "string" || !paymentSessionId) {
         throw new Error("Could not start checkout. Please try again.");
       }
+      checkoutOrderId = orderId;
       const { load } = await import("@cashfreepayments/cashfree-js");
       const cashfree = await load({ mode: "production" });
-      if (!cashfree) throw new Error("Payment gateway could not load. Please try again.");
-      const result = await cashfree.checkout({ paymentSessionId, redirectTarget: "_modal" });
+      if (!cashfree)
+        throw new Error("Payment gateway could not load. Please try again.");
+      const result = await cashfree.checkout({
+        paymentSessionId,
+        redirectTarget: "_modal",
+      });
       // Cashfree owns external bank redirects. A returned result (including a
       // dismissed modal) goes to Payments for authoritative server verification.
       if (result?.redirect) return;
-      router.replace(`/student/history?order_id=${encodeURIComponent(orderId)}`);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : String(error);
-      setPayError(
-        message || "Payment was not completed. You can try again.",
+      await fetch("/api/payments/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      }).catch(() => undefined);
+      router.replace(
+        `/student/history?order_id=${encodeURIComponent(orderId)}`,
       );
+    } catch (error: unknown) {
+      if (checkoutOrderId) {
+        await fetch("/api/payments/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: checkoutOrderId }),
+        }).catch(() => undefined);
+        router.replace(
+          `/student/history?order_id=${encodeURIComponent(checkoutOrderId)}`,
+        );
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setPayError(message || "Payment was not completed. You can try again.");
     } finally {
       paymentLock.current = false;
       setIsLoading(false);
@@ -176,7 +205,11 @@ export function Checkout({ dues, compact = false }: { dues: PayableFee[]; compac
               UPI, Cards or Net Banking · Cashfree
             </span>
           </span>
-          {isLoading ? <Spinner /> : <ArrowRight className="size-5 text-primary" />}
+          {isLoading ? (
+            <Spinner />
+          ) : (
+            <ArrowRight className="size-5 text-primary" />
+          )}
         </button>
       </>
       <Feedback error={payError} />

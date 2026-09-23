@@ -15,6 +15,7 @@ import {
   fetchOrder,
 } from "@/lib/cashfree";
 import {
+  closeAbandonedCashfreeCheckout,
   validateCashfreeOrder,
   verifyCashfreePayment,
 } from "@/lib/payment-verification";
@@ -39,9 +40,143 @@ export const POST = mutation(async (req) => {
 
   // Commit a durable reservation before contacting Cashfree. Retries and double
   // clicks share the order ID and idempotency key, including after API timeouts.
-  const reservation = await getDb().transaction(async (tx) => {
+  let reservation = await reservePayment(user.id, feeDueId);
+  let { record, existing } = reservation;
+  let orderId = record.cashfreeOrderId!;
+  let expiresAt = new Date(
+    record.createdAt.getTime() + 30 * 60 * 1000,
+  ).toISOString();
+  let order;
+  if (existing) {
+    try {
+      order = await fetchOrder(orderId);
+    } catch (error) {
+      if (!(error instanceof CashfreeApiError) || error.providerStatus !== 404)
+        throw error;
+      // If the first request never reached Cashfree, retry the same reservation.
+      if (Date.parse(expiresAt) <= Date.now() + 5 * 60 * 1000) {
+        await closeReservation(record.id);
+        reservation = await reservePayment(user.id, feeDueId);
+        ({ record, existing } = reservation);
+        orderId = record.cashfreeOrderId!;
+        expiresAt = new Date(
+          record.createdAt.getTime() + 30 * 60 * 1000,
+        ).toISOString();
+      }
+    }
+  }
+  if (order && existing) {
+    validateCashfreeOrder(order, record);
+    const reconciliation = await closeAbandonedCashfreeCheckout(orderId);
+    if (reconciliation.state === "paid")
+      return Response.json({ orderId, alreadyPaid: true });
+    if (reconciliation.state === "processing")
+      throw new AppError(
+        "Payment is still processing. Check payment status before trying again.",
+        409,
+      );
+    reservation = await reservePayment(user.id, feeDueId);
+    ({ record, existing } = reservation);
+    orderId = record.cashfreeOrderId!;
+    expiresAt = new Date(
+      record.createdAt.getTime() + 30 * 60 * 1000,
+    ).toISOString();
+    order = undefined;
+  }
+  if (!order) {
+    order = await createReservedOrder();
+  }
+  validateCashfreeOrder(order, record);
+  if (order.order_status === "PAID") {
+    await verifyCashfreePayment(orderId);
+    return Response.json({ orderId, alreadyPaid: true });
+  }
+  if (["EXPIRED", "TERMINATED"].includes(order.order_status)) {
+    const verified = await verifyCashfreePayment(orderId);
+    if (
+      verified.attemptStatus !== "paid" &&
+      verified.attemptStatus !== "pending"
+    ) {
+      await closeReservation(record.id);
+      reservation = await reservePayment(user.id, feeDueId);
+      ({ record, existing } = reservation);
+      orderId = record.cashfreeOrderId!;
+      expiresAt = new Date(
+        record.createdAt.getTime() + 30 * 60 * 1000,
+      ).toISOString();
+      order = await createReservedOrder();
+      validateCashfreeOrder(order, record);
+    } else if (
+      verified.attemptStatus === "paid" ||
+      verified.status === "verified"
+    ) {
+      return Response.json({ orderId, alreadyPaid: true });
+    } else {
+      throw new AppError(
+        "Payment is still processing. Check payment status before trying again.",
+        409,
+      );
+    }
+  }
+  if (order.order_status !== "ACTIVE" || !order.payment_session_id) {
+    throw new AppError(
+      "This payment is still being processed. Check its status before paying again.",
+      409,
+    );
+  }
+  if (record.amount !== reservation.balance)
+    throw new AppError(
+      "Your fee balance changed. Wait for the current checkout to expire before paying again.",
+      409,
+    );
+  return Response.json({
+    payment_session_id: order.payment_session_id,
+    orderId: order.order_id,
+    amount: record.amount,
+    expiresAt: order.order_expiry_time ?? expiresAt,
+  });
+
+  function createReservedOrder() {
+    return createOrder(
+      {
+        order_id: orderId,
+        order_amount: record.amount / 100,
+        order_currency: "INR",
+        customer_details: {
+          customer_id: user.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50),
+          customer_phone: phone,
+          customer_email: user.email,
+          customer_name: profile.fullName,
+        },
+        order_expiry_time: expiresAt,
+        order_meta: orderMeta,
+      },
+      record.id,
+    );
+  }
+});
+
+async function closeReservation(id: string) {
+  await getDb()
+    .update(payments)
+    .set({
+      status: "failed",
+      attemptStatus: "abandoned",
+      reviewNote: "Cashfree order closed; safe to create a new checkout.",
+    })
+    .where(
+      and(
+        eq(payments.id, id),
+        ne(payments.status, "verified"),
+        ne(payments.attemptStatus, "paid"),
+      ),
+    );
+}
+
+async function reservePayment(userId: string, feeDueId: string) {
+  return getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, feeDueId);
-    if (fee.userId !== user.id) throw new AppError("Fee not found.", 404);
+    if (fee.userId !== userId) throw new AppError("Fee not found.", 404);
     const amount = await feeBalance(tx, fee);
     if (!amount) throw new AppError("This fee is already paid.");
     const [pending] = await tx
@@ -64,7 +199,6 @@ export const POST = mutation(async (req) => {
       )
       .orderBy(desc(payments.createdAt))
       .limit(1);
-    // Reuse even a locally expired/failed record until the provider confirms closure.
     const reusable = pending ?? previous;
     if (
       reusable &&
@@ -78,7 +212,7 @@ export const POST = mutation(async (req) => {
       .insert(payments)
       .values({
         id,
-        userId: user.id,
+        userId,
         feeDueId: fee.id,
         amount,
         method: "cashfree",
@@ -88,95 +222,4 @@ export const POST = mutation(async (req) => {
       .returning();
     return { record, existing: false, balance: amount };
   });
-  const { record, existing } = reservation;
-  const orderId = record.cashfreeOrderId!;
-  const expiresAt = new Date(
-    record.createdAt.getTime() + 30 * 60 * 1000,
-  ).toISOString();
-  let order;
-  if (existing) {
-    try {
-      order = await fetchOrder(orderId);
-    } catch (error) {
-      if (!(error instanceof CashfreeApiError) || error.providerStatus !== 404)
-        throw error;
-      // If the first request never reached Cashfree, retry the same reservation.
-      if (Date.parse(expiresAt) <= Date.now() + 5 * 60 * 1000) {
-        await closeReservation(record.id);
-        throw new AppError(
-          "The checkout expired. Please select Pay online again.",
-          409,
-        );
-      }
-    }
-  }
-  if (!order) {
-    order = await createOrder(
-      {
-        order_id: orderId,
-        order_amount: record.amount / 100,
-        order_currency: "INR",
-        customer_details: {
-          customer_id: user.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50),
-          customer_phone: phone,
-          customer_email: user.email,
-          customer_name: profile.fullName,
-        },
-        order_expiry_time: expiresAt,
-        order_meta: orderMeta,
-      },
-      record.id,
-    );
-  }
-  validateCashfreeOrder(order, record);
-  if (order.order_status === "PAID") {
-    await verifyCashfreePayment(orderId);
-    return Response.json({ orderId, alreadyPaid: true });
-  }
-  if (["EXPIRED", "TERMINATED"].includes(order.order_status)) {
-    const verified = await verifyCashfreePayment(orderId);
-    if (
-      verified.attemptStatus !== "paid" &&
-      verified.attemptStatus !== "pending"
-    )
-      await closeReservation(record.id);
-    throw new AppError(
-      "The previous checkout has closed. Please select Pay online again.",
-      409,
-    );
-  }
-  if (order.order_status !== "ACTIVE" || !order.payment_session_id) {
-    throw new AppError(
-      "This payment is still being processed. Check its status before paying again.",
-      409,
-    );
-  }
-  if (record.amount !== reservation.balance)
-    throw new AppError(
-      "Your fee balance changed. Wait for the current checkout to expire before paying again.",
-      409,
-    );
-  return Response.json({
-    payment_session_id: order.payment_session_id,
-    orderId: order.order_id,
-    amount: record.amount,
-    expiresAt: order.order_expiry_time ?? expiresAt,
-  });
-});
-
-async function closeReservation(id: string) {
-  await getDb()
-    .update(payments)
-    .set({
-      status: "failed",
-      attemptStatus: "abandoned",
-      reviewNote: "Cashfree order closed; safe to create a new checkout.",
-    })
-    .where(
-      and(
-        eq(payments.id, id),
-        ne(payments.status, "verified"),
-        ne(payments.attemptStatus, "paid"),
-      ),
-    );
 }

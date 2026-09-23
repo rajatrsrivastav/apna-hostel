@@ -5,9 +5,10 @@ import { payments } from "@/db/schema";
 import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
-import { verifyCashfreePayment } from "@/lib/payment-verification";
+import { closeAbandonedCashfreeCheckout } from "@/lib/payment-verification";
 
-// Closing a browser is not proof that a bank payment was cancelled.
+// Reconcile with Cashfree before abandoning a checkout; a browser close alone
+// is never treated as proof that the bank payment failed.
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   const { orderId } = z
@@ -20,6 +21,6 @@ export const POST = mutation(async (req) => {
       and(eq(payments.cashfreeOrderId, orderId), eq(payments.userId, user.id)),
     );
   if (!record) throw new AppError("Payment not found.", 404);
-  const payment = await verifyCashfreePayment(orderId);
-  return Response.json({ status: payment.attemptStatus ?? payment.status });
+  const result = await closeAbandonedCashfreeCheckout(orderId);
+  return Response.json({ status: result.state });
 });

@@ -1,10 +1,10 @@
 # Apna Hostel — PG / hostel fee portal
 
-A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, Cashfree, and private Cloudinary image storage. The lockfile pins the installed stable versions. The optional Cashfree reviewer account is isolated from real student identities. Simulated payment endpoints are removed; provider mocks exist only in tests.
+A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, and Cashfree. The lockfile pins the installed stable versions. The optional Cashfree reviewer account is isolated from real student identities. Simulated payment endpoints are removed; provider mocks exist only in tests.
 
 ## Quick local setup
 
-Requirements: Node.js 22.x, npm, and accounts with Neon, Google Cloud, Cashfree, and Cloudinary.
+Requirements: Node.js 22.x, npm, and accounts with Neon, Google Cloud, and Cashfree.
 
 ```sh
 npm ci
@@ -59,15 +59,6 @@ Pending/rejected students go to `/approval`, which includes Logout. Accepted stu
 
 References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/redirect), [Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order), [Webhook signatures](https://www.cashfree.com/docs/payments/online/webhooks/overview), [Idempotency](https://www.cashfree.com/docs/payments/online/webhooks/webhook-indempotency).
 
-### 5. Cloudinary screenshots
-
-1. Create a [Cloudinary](https://console.cloudinary.com/) product environment. Copy **Cloud name, API key, and API secret** into the three `CLOUDINARY_*` variables.
-2. Keep the API secret server-only. No unsigned upload preset is used or needed.
-3. The server accepts JPG, PNG, and WebP images up to **3 MB**. It verifies file signatures and uploads with delivery type **`authenticated`** under `hostel-payments/`. The server resizes large images to fit 1800 × 2400.
-4. Leave these assets authenticated; do not convert the folder/assets to public delivery. The browser receives only an application URL. Each screenshot request checks the session and ownership/admin permission before proxying signed delivery from Cloudinary with `Cache-Control: private, no-store`.
-5. Test by uploading a real test screenshot, viewing it as the student and admin, then checking that a logged-out request and another student cannot view it.
-
-The body cap stays below Vercel’s function request limit. Uploads never write to a local filesystem. Failed uploads become failed payment entries and can be retried. If a function is terminated during an upload, the admin queue shows an incomplete upload; reject it with a reason so the student can retry. Periodically remove unreferenced Cloudinary assets after confirming they are not attached to a payment. Retain financial records and screenshots according to your hostel’s retention policy.
 
 ## Student workflow
 
@@ -111,11 +102,11 @@ For the earlier admission migration (0001), apply migrations with `npm run db:mi
 
 1. Push this project and `package-lock.json` to your Git repository. Import it in [Vercel](https://vercel.com/new) using the **Next.js** preset.
 2. Use Node.js **22.x** or a supported newer LTS release. Install command: `npm ci`; build command: `npm run build`. Keep the default Next.js output settings.
-3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon/Cloudinary credentials and Cashfree production credentials. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
+3. Add a random `CRON_SECRET` for scheduled rent generation. Add the variables from `.env.example` to the **Production** environment. Use production Neon credentials and Cashfree production credentials. Set `BETTER_AUTH_URL=https://YOUR-STABLE-DOMAIN` and your secret. Do not include trailing paths.
 4. Configure your stable domain. Add its exact Google callback URI and Cashfree webhook URL as described above. Avoid ephemeral preview URLs for OAuth; use a stable staging domain with its own configuration.
 5. Apply `npm run db:migrate` against the production database from a trusted terminal/CI before opening the deployment. Migrations are not executed at build or on request.
 6. Deploy. Sign in with the intended admin Google account, with `ADMIN_EMAIL` configured on the server.
-7. Complete one test-mode online payment and one manual submission on staging, verify approval/rejection and receipts, then configure live mode for production. Check webhook deliveries in Cashfree and function logs in Vercel.
+7. Complete one test-mode online payment and verify approval and receipts, then configure live mode for production. Check webhook deliveries in Cashfree and function logs in Vercel.
 8. Configure database backups/restore in Neon and alerting for function failures and failed webhook deliveries. Place functions near the Neon database. The server uses a small pooled connection count for serverless deployment.
 
 The application sends no-store responses for authenticated API data, checks same-origin mutation requests, validates inputs with Zod, rate limits authentication and application mutations in PostgreSQL, and uses privacy-conscious structured error logging. Unexpected API errors return a short incident reference; raw credentials and payment bodies are not logged by application code.
@@ -129,14 +120,14 @@ npm test
 npm run build
 ```
 
-Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes Better Auth sessions and roles, reviewer record preservation, migrations, production-origin validation, email failures and HTML escaping, Cashfree signatures, duplicate and out-of-order events, payment ownership, amount mismatches, checkout retries and expiry. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, Cloudinary account, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
+Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes Better Auth sessions and roles, reviewer record preservation, migrations, production-origin validation, email failures and HTML escaping, Cashfree signatures, duplicate and out-of-order events, payment ownership, amount mismatches, checkout retries and expiry. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
 
 ## Useful paths
 
 - `src/db/schema.ts`, `drizzle/`: database schema and migrations.
 - `src/lib/auth.ts`, `src/lib/access.ts`: auth/session and role enforcement.
 - `src/lib/ledger.ts`: transaction-safe payment settlement.
-- `src/app/api/`: authenticated mutations, screenshots and Cashfree webhook.
+- `src/app/api/`: authenticated mutations and Cashfree webhook.
 - `src/app/(portal)/`: student, admin, and receipt screens.
 - `tests/`: isolated security and database/API tests.
 
@@ -146,7 +137,6 @@ Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in 
 - **Login configuration failure:** check the five auth/database variables and applied migrations. The login route is dynamic and requires valid runtime auth configuration. Static legal pages do not need login.
 - **Admin forbidden:** first sign in with the exact `ADMIN_EMAIL`, and confirm `ADMIN_EMAIL` is configured on the application server.
 - **Payment stays pending:** check production credentials, webhook signatures and delivery logs, then use Check payment on the receipt.
-- **Screenshot unavailable:** check the three Cloudinary variables and authenticated asset access; incomplete uploads can be rejected for retry.
 - **Stale fee update:** reload before retrying; another admin or payment changed the account.
 
 The monthly fee migration adds `users.monthly_rent` with a ₹1,000 default. Run `npm run db:migrate` before starting this version. It preserves existing dues, payments, and approval statuses. Changing the rate first generates any accrued months at the previous rate.

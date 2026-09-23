@@ -15,7 +15,7 @@ export class CashfreeApiError extends AppError {
 
 async function api(
   path: string,
-  method: "GET" | "POST" = "GET",
+  method: "GET" | "POST" | "PATCH" = "GET",
   body?: object,
   idempotencyKey?: string,
 ) {
@@ -112,6 +112,14 @@ export async function createOrder(
 
 export async function fetchOrder(orderId: string) {
   return orderSchema.parse(await api(`orders/${encodeURIComponent(orderId)}`));
+}
+
+export async function terminateOrder(orderId: string) {
+  return orderSchema.parse(
+    await api(`orders/${encodeURIComponent(orderId)}`, "PATCH", {
+      order_status: "TERMINATED",
+    }),
+  );
 }
 
 const paymentSchema = z.object({
