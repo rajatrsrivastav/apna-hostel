@@ -1,5 +1,4 @@
 import { AdmissionActions } from "@/components/admission-actions";
-import { AdminCollection } from "@/components/admin-collection";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Phone, GraduationCap } from "lucide-react";
@@ -79,14 +78,6 @@ export default async function StudentDetail({
           {data.dues.map((f) => (
             <div key={`${f.id}-${f.revision}`} className="space-y-2">
               <EditFee fee={{ ...f, pending: !!f.pending }} />
-              {student.user.approvalStatus === "accepted" &&
-                f.outstanding > 0 &&
-                !f.pending && (
-                  <AdminCollection
-                    feeDueId={f.id}
-                    outstanding={f.outstanding}
-                  />
-                )}
             </div>
           ))}
         </div>
@@ -140,17 +131,6 @@ export default async function StudentDetail({
               Admin collection · {money(p.amount)} ·{" "}
               {p.status === "verified" ? "Paid" : "Voided"}
             </p>
-            <AdminCollection
-              feeDueId={p.feeDueId}
-              outstanding={0}
-              payment={{
-                id: p.id,
-                amount: p.amount,
-                paymentDate: p.paymentDate,
-                revision: p.revision,
-                status: p.status,
-              }}
-            />
             {p.adminAudit.length > 0 && (
               <details className="p-3 text-xs">
                 <summary>Collection correction history</summary>

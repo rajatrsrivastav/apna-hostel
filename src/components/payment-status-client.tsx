@@ -1,22 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, XCircle, Loader2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/components/form-kit";
 
-type Status = "verifying" | "success" | "failed" | "pending" | "review";
+type Status = "verifying" | "success" | "failed" | "review";
 
 export function PaymentStatusClient() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const orderId = searchParams.get("order_id");
 
   const [status, setStatus] = useState<Status>(() =>
     orderId ? "verifying" : "failed",
   );
-  const [retry, setRetry] = useState(0);
   const [paymentId, setPaymentId] = useState("");
   const [errorMsg, setErrorMsg] = useState(() =>
     orderId ? "" : "No order ID found. Please return to payments.",
@@ -27,8 +27,6 @@ export function PaymentStatusClient() {
 
     let cancelled = false;
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let attempts = 0;
     async function verify() {
       try {
         const result = await api<{
@@ -48,12 +46,7 @@ export function PaymentStatusClient() {
           setStatus("review");
           return;
         }
-        if (++attempts < 5) {
-          timer = setTimeout(verify, 3000);
-          return;
-        }
-        setErrorMsg(result.message);
-        setStatus("pending");
+        router.replace(`/student/history?order_id=${encodeURIComponent(orderId!)}`);
       } catch (err: unknown) {
         if (cancelled) return;
         setErrorMsg(
@@ -61,47 +54,23 @@ export function PaymentStatusClient() {
             ? err.message
             : "Could not verify payment. Please check again.",
         );
-        setStatus("pending");
+        router.replace(`/student/history?order_id=${encodeURIComponent(orderId!)}`);
       }
     }
     verify();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
-  }, [orderId, retry]);
+  }, [orderId, router]);
 
-  if (status === "pending" || status === "review") {
+  if (status === "review") {
     return (
       <Card className="py-12 text-center">
-        <h2 className="text-xl font-semibold">
-          {status === "review"
-            ? "Payment received — review required"
-            : "Payment not confirmed yet"}
-        </h2>
-        <p className="my-4 text-sm text-muted-foreground">
-          {errorMsg} If your account was debited, please do not pay again.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {status === "pending" && (
-            <Button
-              onClick={() => {
-                setStatus("verifying");
-                setRetry((value) => value + 1);
-              }}
-            >
-              Check payment status
-            </Button>
-          )}
-          {paymentId && (
-            <Button asChild variant="outline">
-              <Link href={`/receipts/${paymentId}`}>View payment</Link>
-            </Button>
-          )}
-          <Button asChild variant="outline">
-            <Link href="/student">Back to my fee</Link>
-          </Button>
-        </div>
+        <h2 className="text-xl font-semibold">Payment received — review required</h2>
+        <p className="my-4 text-sm text-muted-foreground">{errorMsg} Please do not pay again.</p>
+        <Button asChild variant="outline">
+          <Link href={paymentId ? `/receipts/${paymentId}` : "/student/history"}>View payment</Link>
+        </Button>
       </Card>
     );
   }

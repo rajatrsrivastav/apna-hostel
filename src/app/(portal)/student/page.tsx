@@ -12,15 +12,15 @@ import { studentPage } from "@/lib/access";
 import { studentData } from "@/lib/data";
 import { dateLabel, money, feeStatus } from "@/lib/money";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentHistory } from "@/components/payment-history";
+import { Checkout } from "@/components/checkout";
 export default async function StudentDashboard() {
   const { user, profile } = await studentPage();
   const data = await studentData(user.id);
   const next = data.dues.find((f) => f.outstanding > 0);
   const pending = data.history.some(
-    (p) => p.status === "pending" && p.method === "manual_upi",
+    (p) => p.status === "pending",
   );
   return (
     <div className="mx-auto max-w-4xl">
@@ -93,12 +93,15 @@ export default async function StudentDashboard() {
           )}
           <div className="mt-7 max-w-sm">
             {data.totalDue > 0 ? (
-              <Button size="lg" asChild className="w-full">
-                <Link href="/student/pay">
-                  Pay Now / फीस भरें
-                  <ArrowRight className="ml-auto" />
-                </Link>
-              </Button>
+              <Checkout
+                compact
+                dues={next ? [{
+                  id: next.id,
+                  label: next.label,
+                  dueDate: next.dueDate,
+                  outstanding: next.outstanding,
+                }] : []}
+              />
             ) : (
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
                 <CheckCheck className="size-5" />
@@ -114,10 +117,9 @@ export default async function StudentDashboard() {
         <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <Clock3 className="mt-0.5 size-5 shrink-0" />
           <div>
-            <p className="font-semibold">Screenshot received / जाँच बाकी है</p>
+            <p className="font-semibold">Payment pending / जाँच बाकी है</p>
             <p className="mt-1 text-xs leading-5">
-              The office is checking your payment. Please don’t pay that fee
-              again.
+              Check its status in Payments. If your account was debited, do not pay again.
             </p>
           </div>
         </div>

@@ -16,11 +16,8 @@ import {
   buildPaymentSuccessEmail,
   buildPaymentIncompleteEmail,
   buildOverdueReminderEmail,
-  buildManualPaymentSubmittedEmail,
-  buildAdminNewPaymentAlert,
-  buildPaymentRejectedEmail,
 } from "./email";
-import { getAdminEmails, publicOrigin } from "./env";
+import { publicOrigin } from "./env";
 
 const getBaseUrl = () => publicOrigin();
 
@@ -280,21 +277,13 @@ export async function sendOverdueReminders(cooldownDays = 3) {
   for (const student of acceptedStudents) {
     if (!student.email) continue;
 
-    // Check if student has any pending manual UPI payments awaiting verification
-    const pendingManual = await db
+    // Do not urge another payment while an online attempt may still settle.
+    const pendingPayment = await db
       .select({ id: payments.id })
       .from(payments)
-      .where(
-        and(
-          eq(payments.userId, student.id),
-          eq(payments.status, "pending"),
-          eq(payments.method, "manual_upi"),
-        ),
-      )
-      .limit(1);
-
-    if (pendingManual.length > 0) {
-      // Do not send overdue notice if student already uploaded verification screenshot
+      .where(and(eq(payments.userId, student.id), eq(payments.status, "pending")));
+    if (pendingPayment.length > 0) {
+      // A pending Cashfree attempt needs provider verification first
       skippedCount++;
       continue;
     }
@@ -382,158 +371,4 @@ export async function sendOverdueReminders(cooldownDays = 3) {
   }
 
   return { sentCount, skippedCount };
-}
-
-// 5. Manual Payment Submitted Notification (student confirmation + admin alert)
-export async function notifyManualPaymentSubmitted(paymentId: string) {
-  try {
-    const db = getDb();
-
-    // Check if notification was already sent for this payment
-    const [alreadySent] = await db
-      .select({ id: notificationLogs.id })
-      .from(notificationLogs)
-      .where(
-        and(
-          eq(notificationLogs.paymentId, paymentId),
-          eq(notificationLogs.type, "manual_payment_submitted"),
-        ),
-      );
-    if (alreadySent) return;
-
-    const [payment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.id, paymentId));
-    if (!payment) return;
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, payment.userId));
-    if (!user || !user.email) return;
-
-    const [profile] = await db
-      .select()
-      .from(studentProfiles)
-      .where(eq(studentProfiles.userId, user.id));
-
-    const studentName = profile?.fullName || user.name || "Student";
-    const amountFormatted = money(payment.amount);
-    const paymentDate = dateLabel(payment.paymentDate || payment.createdAt);
-    const receiptUrl = `${getBaseUrl()}/receipts/${payment.id}`;
-
-    // Send confirmation to student
-    const studentEmail = buildManualPaymentSubmittedEmail({
-      studentName,
-      amountFormatted,
-      paymentDate,
-      receiptUrl,
-    });
-
-    const studentResult = await sendEmail({
-      to: user.email,
-      ...studentEmail,
-    });
-
-    if (studentResult.success) {
-      await db.insert(notificationLogs).values({
-        id: crypto.randomUUID(),
-        userId: user.id,
-        feeDueId: payment.feeDueId,
-        paymentId: payment.id,
-        type: "manual_payment_submitted",
-        recipient: user.email,
-      });
-    }
-
-    // Send alert to all admin emails
-    const adminEmails = getAdminEmails();
-    const adminEmailData = buildAdminNewPaymentAlert({
-      studentName,
-      amountFormatted,
-      paymentDate,
-      receiptUrl,
-    });
-
-    for (const adminEmail of adminEmails) {
-      try {
-        await sendEmail({ to: adminEmail, ...adminEmailData });
-      } catch (err) {
-        console.error(
-          `[Notification] Failed to send admin alert to ${adminEmail}:`,
-          err instanceof Error ? err.name : "UnknownError",
-        );
-      }
-    }
-  } catch (err) {
-    console.error(
-      "[Notification] Failed to send manual payment submitted email:",
-      err instanceof Error ? err.name : "UnknownError",
-    );
-  }
-}
-
-// 6. Payment Rejected Notification
-export async function notifyPaymentRejected(paymentId: string) {
-  try {
-    const db = getDb();
-
-    // Check if notification was already sent for this payment
-    const [alreadySent] = await db
-      .select({ id: notificationLogs.id })
-      .from(notificationLogs)
-      .where(
-        and(
-          eq(notificationLogs.paymentId, paymentId),
-          eq(notificationLogs.type, "payment_rejected"),
-        ),
-      );
-    if (alreadySent) return;
-
-    const [payment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.id, paymentId));
-    if (!payment || payment.status !== "rejected") return;
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, payment.userId));
-    if (!user || !user.email) return;
-
-    const [profile] = await db
-      .select()
-      .from(studentProfiles)
-      .where(eq(studentProfiles.userId, user.id));
-
-    const emailData = buildPaymentRejectedEmail({
-      studentName: profile?.fullName || user.name || "Student",
-      amountFormatted: money(payment.amount),
-      reason: payment.reviewNote || "No reason provided.",
-      payUrl: `${getBaseUrl()}/student/pay`,
-    });
-
-    const result = await sendEmail({
-      to: user.email,
-      ...emailData,
-    });
-
-    if (result.success) {
-      await db.insert(notificationLogs).values({
-        id: crypto.randomUUID(),
-        userId: user.id,
-        feeDueId: payment.feeDueId,
-        paymentId: payment.id,
-        type: "payment_rejected",
-        recipient: user.email,
-      });
-    }
-  } catch (err) {
-    console.error(
-      "[Notification] Failed to send payment rejected email:",
-      err instanceof Error ? err.name : "UnknownError",
-    );
-  }
 }

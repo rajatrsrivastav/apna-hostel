@@ -11,16 +11,13 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { requireAdmin } from "@/lib/access";
-import { adminStudents, pendingReviews } from "@/lib/data";
+import { adminStudents } from "@/lib/data";
 import { money, dateLabel } from "@/lib/money";
 import { Card } from "@/components/ui/card";
 import { AdminStudents } from "@/components/admin-students";
 export default async function AdminDashboard() {
   await requireAdmin();
-  const [students, reviews] = await Promise.all([
-    adminStudents(),
-    pendingReviews(),
-  ]);
+  const students = await adminStudents();
   const collected = students.reduce((n, s) => n + s.paid, 0),
     outstanding = students.reduce((n, s) => n + s.outstanding, 0);
   const stats = [
@@ -44,13 +41,6 @@ export default async function AdminDashboard() {
       icon: CircleAlert,
       color: "bg-red-50 text-red-600",
       detail: "Have an outstanding fee",
-    },
-    {
-      label: "Verification pending",
-      value: reviews.length,
-      icon: Clock3,
-      color: "bg-amber-50 text-amber-700",
-      detail: "Manual payments to review",
     },
   ];
   return (
@@ -144,29 +134,6 @@ export default async function AdminDashboard() {
           </div>
         </Card>
       </div>
-      {reviews.length > 0 && (
-        <Link
-          href="/admin/verification"
-          className="flex items-center gap-4 rounded-xl border border-[#eadfc4] bg-[#faf6eb] p-4"
-        >
-          <span className="rounded-lg bg-[#f1e7cd] p-2 text-[#9d783a]">
-            <Clock3 className="size-5" />
-          </span>
-          <div className="flex-1">
-            <p className="text-sm font-semibold">
-              {reviews.length} payment{reviews.length === 1 ? "" : "s"} waiting
-              for a quick check
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Review UPI screenshots and keep students in the loop.
-            </p>
-          </div>
-          <span className="hidden text-xs font-semibold text-[#8b6a35] sm:block">
-            Review payments
-          </span>
-          <ArrowRight className="size-4 shrink-0 text-[#8b6a35]" />
-        </Link>
-      )}
       <AdminStudents
         students={students.map((s) => ({
           ...s,

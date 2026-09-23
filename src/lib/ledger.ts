@@ -29,7 +29,7 @@ export async function feeBalance(
   return balance(fee.amount, totals.paid, fee.waivedAmount);
 }
 // Both checkout verification and webhooks converge here. A row lock serializes
-// duplicate/out-of-order notifications and manual review against the same fee.
+// duplicate/out-of-order notifications against the same fee.
 export async function settleProviderPayment(provider: ProviderPayment) {
   const db = getDb();
   const [record] = await db

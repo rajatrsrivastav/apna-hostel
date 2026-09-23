@@ -168,7 +168,7 @@ export function buildRentGeneratedEmail({
       </div>
     </div>
     <div style="font-size: 12px; color: #64748b; margin-top: 8px;">
-      Due Date: <strong>${escapeHtml(dueDate)}</strong>. Pay online via UPI/Card or submit manual UPI receipt.
+      Due Date: <strong>${escapeHtml(dueDate)}</strong>. Pay online securely via Cashfree.
     </div>
   `;
 
@@ -271,12 +271,12 @@ export function buildPaymentIncompleteEmail({
         ${
           isFailed
             ? "Your bank or payment method could not complete the transaction. If money was deducted, it will be refunded by your bank within 3–5 working days."
-            : "You closed or cancelled the checkout session. No funds were debited."
+            : "The checkout was closed or cancelled. Check its status before trying again."
         }
       </p>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 14px;">
-      You can retry the online payment or upload a manual UPI screenshot at your convenience.
+      Check the payment status before trying again. If your account was debited, do not pay again yet.
     </p>
   `;
 
@@ -284,7 +284,7 @@ export function buildPaymentIncompleteEmail({
 Hi ${studentName},
 
 Your payment of ${amountFormatted} was ${type}.
-No money was debited (or will be refunded by your bank if deducted).
+If your account was debited, do not pay again until its status is checked.
 
 You can retry your payment at: ${payUrl}
 `;
@@ -325,7 +325,7 @@ export function buildOverdueReminderEmail({
       </div>
     </div>
     <p style="font-size: 13px; color: #475569; margin-top: 16px; line-height: 1.5;">
-      Please clear your pending hostel rent to avoid administrative delays. If you have already paid via UPI QR, please upload your screenshot for office verification.
+      Please clear your pending hostel rent to avoid administrative delays. If you have already paid, check its status in Payments before trying again.
     </p>
   `;
 
@@ -344,155 +344,6 @@ Please clear your dues at: ${payUrl}
       subtitle,
       contentHtml,
       buttonText: "Pay Now / फीस भरें",
-      buttonUrl: payUrl,
-    }),
-    text,
-  };
-}
-
-export function buildManualPaymentSubmittedEmail({
-  studentName,
-  amountFormatted,
-  paymentDate,
-  receiptUrl,
-}: {
-  studentName: string;
-  amountFormatted: string;
-  paymentDate: string;
-  receiptUrl: string;
-}) {
-  const title = `Payment Submitted / भुगतान भेजा गया`;
-  const subtitle = `Hi ${studentName}, your payment screenshot has been received and is pending verification.`;
-
-  const contentHtml = `
-    <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 16px; padding: 20px; text-align: center;">
-      <div style="font-size: 14px; color: #92400e; font-weight: 500;">Amount Submitted / जमा राशि</div>
-      <div style="font-size: 32px; font-weight: 700; color: #b45309; margin: 6px 0 12px 0;">${escapeHtml(amountFormatted)}</div>
-      <div style="font-size: 13px; color: #78350f;">
-        Date: <strong>${escapeHtml(paymentDate)}</strong> · Status: <strong>Pending Verification</strong>
-      </div>
-    </div>
-    <p style="font-size: 13px; color: #475569; margin-top: 16px; line-height: 1.5;">
-      The hostel office will verify your screenshot. Please do not pay again while verification is in progress. You will receive an email once the payment is approved or if any issue is found.
-    </p>
-  `;
-
-  const text = `
-Hi ${studentName},
-
-Your payment screenshot of ${amountFormatted} on ${paymentDate} has been submitted.
-Status: Pending Verification
-
-Please do not pay again. You'll be notified once the office reviews it.
-View your payment: ${receiptUrl}
-`;
-
-  return {
-    subject: `Apna Hostel - Payment of ${amountFormatted} Submitted for Verification`,
-    html: wrapEmailTemplate({
-      title,
-      subtitle,
-      contentHtml,
-      buttonText: "View Payment / भुगतान देखें",
-      buttonUrl: receiptUrl,
-    }),
-    text,
-  };
-}
-
-export function buildAdminNewPaymentAlert({
-  studentName,
-  amountFormatted,
-  paymentDate,
-  receiptUrl,
-}: {
-  studentName: string;
-  amountFormatted: string;
-  paymentDate: string;
-  receiptUrl: string;
-}) {
-  const title = `New Payment Awaiting Verification`;
-  const subtitle = `A student has uploaded a manual payment screenshot for review.`;
-
-  const contentHtml = `
-    <div style="background-color: #edf3e7; border: 1px solid #d9e4d4; border-radius: 16px; padding: 20px;">
-      <div style="font-size: 13px; color: #475569; font-weight: 500;">Student</div>
-      <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 4px 0 12px 0;">${escapeHtml(studentName)}</div>
-      <div style="font-size: 13px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px;">
-        Amount: <strong>${escapeHtml(amountFormatted)}</strong> · Date: <strong>${escapeHtml(paymentDate)}</strong>
-      </div>
-    </div>
-    <p style="font-size: 13px; color: #475569; margin-top: 14px; line-height: 1.5;">
-      Please review the screenshot and approve or reject the payment in the admin portal.
-    </p>
-  `;
-
-  const text = `
-New manual payment awaiting verification.
-
-Student: ${studentName}
-Amount: ${amountFormatted}
-Payment Date: ${paymentDate}
-
-Review it at: ${receiptUrl}
-`;
-
-  return {
-    subject: `Apna Hostel - New Payment from ${studentName} (${amountFormatted}) Needs Review`,
-    html: wrapEmailTemplate({
-      title,
-      subtitle,
-      contentHtml,
-      buttonText: "Review Payment",
-      buttonUrl: receiptUrl,
-    }),
-    text,
-  };
-}
-
-export function buildPaymentRejectedEmail({
-  studentName,
-  amountFormatted,
-  reason,
-  payUrl,
-}: {
-  studentName: string;
-  amountFormatted: string;
-  reason: string;
-  payUrl: string;
-}) {
-  const title = `Payment Rejected / भुगतान अस्वीकार`;
-  const subtitle = `Hi ${studentName}, your recent payment could not be verified.`;
-
-  const contentHtml = `
-    <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 16px; padding: 20px;">
-      <div style="font-size: 13px; color: #991b1b; font-weight: 500;">Rejected Amount / अस्वीकृत राशि</div>
-      <div style="font-size: 24px; font-weight: 700; color: #b91c1c; margin: 4px 0 12px 0;">${escapeHtml(amountFormatted)}</div>
-      <div style="font-size: 13px; color: #7f1d1d; border-top: 1px dashed #fca5a5; padding-top: 12px;">
-        <strong>Reason:</strong> ${escapeHtml(reason)}
-      </div>
-    </div>
-    <p style="font-size: 13px; color: #475569; margin-top: 14px; line-height: 1.5;">
-      If you believe this was a mistake, please contact the hostel office. You can submit a new screenshot or retry the online payment.
-    </p>
-  `;
-
-  const text = `
-Hi ${studentName},
-
-Your payment of ${amountFormatted} has been rejected.
-Reason: ${reason}
-
-Please retry or contact the office: ${payUrl}
-`;
-
-  return {
-    subject: `Apna Hostel - Payment of ${amountFormatted} Rejected`,
-    html: wrapEmailTemplate({
-      title,
-      subtitle,
-      contentHtml,
-      buttonText: "Retry Payment / फिर कोशिश करें",
       buttonUrl: payUrl,
     }),
     text,

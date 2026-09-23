@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 vi.mock("react", async (original) => ({
   ...(await original<typeof import("react")>()),
   useEffect: vi.fn(),
+  useRef: (current: unknown) => ({ current }),
   useState: (initial: unknown) => {
     const index = state.cursor++;
     if (!(index in state.values)) state.values[index] = initial;
@@ -44,7 +45,7 @@ vi.mock("@cashfreepayments/cashfree-js", () => ({
   }),
 }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: state.refresh, push: state.push }),
+  useRouter: () => ({ refresh: state.refresh, push: state.push, replace: state.push }),
 }));
 import { Checkout, type PayableFee } from "@/components/checkout";
 import { Button } from "@/components/ui/button";
@@ -101,19 +102,7 @@ afterEach(() => {
 
 it("renders payment options initially", () => {
   const initialButtons = buttons(render());
-  expect(initialButtons).toHaveLength(2); // Pay online & Already paid with UPI
-});
-
-it("switching to manual payment view and clicking back restores payment choices", async () => {
-  const initialButtons = buttons(render());
-  // Click "Already paid with UPI?" (index 1)
-  await initialButtons[1].props.onClick!();
-  const manualButtons = buttons(render());
-  // First button in manual view is "Payment methods" back button
-  expect(manualButtons.length).toBeGreaterThanOrEqual(1);
-  await manualButtons[0].props.onClick!();
-  const restoredButtons = buttons(render());
-  expect(restoredButtons).toHaveLength(2);
+  expect(initialButtons).toHaveLength(1); // Cashfree only
 });
 
 it("initiating online checkout calls order endpoint and launches hosted checkout", async () => {
@@ -126,15 +115,16 @@ it("initiating online checkout calls order endpoint and launches hosted checkout
       String(path).includes("/api/payments/order"),
     ),
   ).toBe(true);
-  // With _self redirect, the browser navigates away — no verify call or router.push
+  // Cashfree opens in a modal; the returned state goes to Payments for server verification.
   const { load } = await import("@cashfreepayments/cashfree-js");
   expect(load).toHaveBeenCalledWith({ mode: "production" });
   const instance = await vi.mocked(load).mock.results[0].value;
   expect(instance.checkout).toHaveBeenCalledWith({
     paymentSessionId: "session-123",
-    redirectTarget: "_self",
+    redirectTarget: "_modal",
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(state.push).toHaveBeenCalledWith("/student/history?order_id=order-123");
 });
 
 it("does not launch checkout without a server-issued payment session", async () => {
@@ -145,16 +135,11 @@ it("does not launch checkout without a server-issued payment session", async () 
   expect(state.values).toContain("Could not start checkout. Please try again.");
 });
 
-it("shows SDK-returned errors without treating checkout as a successful payment", async () => {
+it("sends an abandoned checkout to Payments without declaring failure", async () => {
   const { load } = await import("@cashfreepayments/cashfree-js");
   vi.mocked(load).mockResolvedValueOnce({
-    checkout: vi
-      .fn()
-      .mockResolvedValue({ error: { message: "Checkout unavailable" } }),
+    checkout: vi.fn().mockResolvedValue({ error: { message: "Checkout closed" } }),
   });
   await buttons(render())[0].props.onClick!();
-  expect(state.values).toContain(
-    "Payment gateway could not open. Please try again.",
-  );
-  expect(state.push).not.toHaveBeenCalled();
+  expect(state.push).toHaveBeenCalledWith("/student/history?order_id=order-123");
 });

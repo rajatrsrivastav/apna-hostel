@@ -361,7 +361,7 @@ it("creates a durable server-side order with production callbacks and a stable k
       expect(body.order_amount).toBe(100);
       expect(body.order_meta).toEqual({
         return_url:
-          "https://portal.example.test/student/payment-status?order_id={order_id}",
+          "https://portal.example.test/student/history?order_id={order_id}",
         notify_url: "https://portal.example.test/api/cashfree/webhook",
       });
       providerOrder.order_id = body.order_id;
@@ -456,6 +456,20 @@ it("does not replace active orders based only on local age, but allows retry aft
     (await create(mutation("/api/payments/order", { feeDueId: feeId }))).status,
   ).toBe(200);
   expect(await db.select().from(schema.payments)).toHaveLength(2);
+});
+
+it("allows retry only after the provider closes the order without a pending capture", async () => {
+  await reserve();
+  const check = async () => (await verify(mutation("/api/payments/verify", { order_id: orderId }))).json();
+  expect(await check()).toMatchObject({ retrySafe: false, status: "pending" });
+  providerOrder.order_status = "EXPIRED";
+  providerPayments = [{
+    cf_payment_id: "9000", payment_amount: 100, payment_currency: "INR",
+    payment_status: "PENDING",
+  }];
+  expect(await check()).toMatchObject({ retrySafe: false });
+  providerPayments[0].payment_status = "USER_DROPPED";
+  expect(await check()).toMatchObject({ retrySafe: true, paid: false });
 });
 
 it("closes an expired order with only NOT_ATTEMPTED entries instead of leaving it pending forever", async () => {

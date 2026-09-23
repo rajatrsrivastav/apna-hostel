@@ -11,7 +11,6 @@ import { Card } from "@/components/ui/card";
 import {
   Reconcile,
   PrintReceipt,
-  ReviewPayment,
 } from "@/components/admin-actions";
 export default async function Receipt({
   params,
@@ -86,47 +85,14 @@ export default async function Receipt({
             Office note: {p.reviewNote}
           </p>
         )}
-        {p.status === "pending" && p.method === "manual_upi" && (
-          <p className="mb-5 text-sm leading-6 text-amber-800">
-            The office will check your screenshot. Please don’t pay again.
-            <br />
-            जाँच बाकी है। दोबारा भुगतान न करें।
-          </p>
+        {p.method === "cashfree" && p.status !== "verified" && (
+          <p className="mb-3 text-sm text-muted-foreground">If your account was debited, do not pay again until you check its status.</p>
         )}
         {p.method === "cashfree" && p.status !== "verified" && (
           <div className="no-print mb-5">
-            <Reconcile id={p.id} />
+            <Reconcile id={p.id} canRetry={user.role !== "admin"} />
           </div>
         )}
-        {p.screenshotPublicId && (
-          <div className="no-print mb-4 space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">
-              Payment Screenshot
-            </p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/payments/${p.id}/screenshot`}
-              alt="Payment screenshot"
-              className="w-full rounded-xl border border-border"
-              loading="lazy"
-            />
-            <a
-              className="flex min-h-10 items-center justify-center text-xs font-medium text-primary"
-              href={`/api/payments/${p.id}/screenshot`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open full size ↗
-            </a>
-          </div>
-        )}
-        {user.role === "admin" &&
-          p.method === "manual_upi" &&
-          p.status === "pending" && (
-            <div className="no-print mb-5">
-              <ReviewPayment id={p.id} hasScreenshot={!!p.screenshotPublicId} />
-            </div>
-          )}
         {p.status === "verified" && (
           <div className="text-center">
             <PrintReceipt />

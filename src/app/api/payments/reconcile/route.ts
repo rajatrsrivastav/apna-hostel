@@ -8,6 +8,7 @@ import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
 import { verifyCashfreePayment } from "@/lib/payment-verification";
+import { fetchOrder, fetchOrderPayments } from "@/lib/cashfree";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/reconcile", 20);
@@ -23,7 +24,13 @@ export const POST = mutation(async (req) => {
   if (!record.cashfreeOrderId)
     throw new AppError("This is not an online payment.");
   const payment = await verifyCashfreePayment(record.cashfreeOrderId);
+  const order = await fetchOrder(record.cashfreeOrderId);
+  const attempts = await fetchOrderPayments(record.cashfreeOrderId);
+  const retrySafe = ["EXPIRED", "TERMINATED"].includes(order.order_status) &&
+    !attempts.some((attempt) => ["SUCCESS", "PENDING"].includes(attempt.status)) &&
+    payment.attemptStatus !== "paid" && payment.status !== "verified";
   return Response.json({
+    retrySafe,
     status: payment.status,
     message:
       payment.attemptStatus === "paid"

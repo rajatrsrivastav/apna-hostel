@@ -9,8 +9,6 @@ vi.mock("resend", () => ({
 }));
 import {
   sendEmail,
-  buildPaymentRejectedEmail,
-  buildAdminNewPaymentAlert,
 } from "@/lib/email";
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -76,26 +74,6 @@ it("uses only configured sender and does not expose provider errors", async () =
   expect(JSON.stringify(log.mock.calls)).not.toContain(
     "private-provider-details",
   );
-});
-it("escapes student names and admin notes in HTML emails while preserving plaintext", () => {
-  const name = '<img src=x onerror="bad()">';
-  const result = buildPaymentRejectedEmail({
-    studentName: name,
-    amountFormatted: "₹100",
-    reason: "<script>bad()</script>",
-    payUrl: "https://portal.example/student/pay",
-  });
-  expect(result.html).not.toContain(name);
-  expect(result.html).not.toContain("<script>");
-  expect(result.html).toContain("&lt;script&gt;");
-  expect(result.text).toContain(name);
-  const admin = buildAdminNewPaymentAlert({
-    studentName: name,
-    amountFormatted: "₹100",
-    paymentDate: "2026-09-23",
-    receiptUrl: "https://portal.example/receipts/test",
-  });
-  expect(admin.html).not.toContain(name);
 });
 it("blocks historical data cleanup on populated databases but allows clean setup and already-applied history", () => {
   expect(() => assertSafeMigrations(0, true)).toThrow("data-deletion");

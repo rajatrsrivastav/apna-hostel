@@ -30,7 +30,6 @@ try {
     "/student",
     "/admin",
     "/admin/students",
-    "/admin/verification",
   ]) {
     await page.goto(`${baseURL}${path}`);
     await page.waitForURL("**/login");

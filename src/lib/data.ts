@@ -31,9 +31,7 @@ export async function studentData(userId: string) {
       outstanding,
       status: feeStatus(
         outstanding,
-        related.some(
-          (p) => p.method === "manual_upi" && p.status === "pending",
-        ),
+        related.some((p) => p.status === "pending"),
       ),
       pending: related.find((p) => p.status === "pending"),
     };
@@ -62,7 +60,7 @@ export async function adminStudents() {
   const result = await getDb().execute(sql`
     WITH paid_by_fee AS (SELECT fee_due_id, sum(amount) FILTER (WHERE status = 'verified') AS paid FROM payments GROUP BY fee_due_id),
     fees AS (SELECT f.user_id, sum(greatest(0, f.amount - f.waived_amount - coalesce(p.paid,0))) AS outstanding FROM fee_dues f LEFT JOIN paid_by_fee p ON p.fee_due_id=f.id GROUP BY f.user_id),
-    history AS (SELECT user_id, sum(amount) FILTER (WHERE status='verified') AS paid, bool_or(status='pending' AND method='manual_upi') AS pending, max(reviewed_at) FILTER (WHERE status='verified') AS last_payment FROM payments GROUP BY user_id)
+    history AS (SELECT user_id, sum(amount) FILTER (WHERE status='verified') AS paid, bool_or(status='pending') AS pending, max(reviewed_at) FILTER (WHERE status='verified') AS last_payment FROM payments GROUP BY user_id)
     SELECT u.id, u.email, coalesce(s.full_name,u.name) AS name, s.phone, s.course, s.trade, s.study_year,
     coalesce(f.outstanding,0)::int AS outstanding, coalesce(h.paid,0)::int AS paid, coalesce(h.pending,false) AS pending, h.last_payment
     FROM users u LEFT JOIN student_profiles s ON s.user_id=u.id LEFT JOIN fees f ON f.user_id=u.id LEFT JOIN history h ON h.user_id=u.id WHERE u.role='student' AND u.approval_status='accepted' ORDER BY u.created_at DESC`);
@@ -81,21 +79,6 @@ export async function adminStudents() {
       last_payment: Date | null;
     }[]
   ).map((s) => ({ ...s, status: feeStatus(s.outstanding, s.pending) }));
-}
-export async function pendingReviews() {
-  return getDb()
-    .select({
-      payment: payments,
-      name: studentProfiles.fullName,
-      label: feeDues.label,
-    })
-    .from(payments)
-    .innerJoin(studentProfiles, eq(payments.userId, studentProfiles.userId))
-    .innerJoin(feeDues, eq(payments.feeDueId, feeDues.id))
-    .where(
-      and(eq(payments.status, "pending"), eq(payments.method, "manual_upi")),
-    )
-    .orderBy(payments.createdAt);
 }
 export async function getStudent(id: string) {
   const [row] = await getDb()

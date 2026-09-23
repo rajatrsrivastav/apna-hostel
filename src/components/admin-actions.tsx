@@ -1,7 +1,8 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Check, Plus, X, Pencil, ExternalLink, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Check, Plus, Pencil, RefreshCw } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
@@ -183,7 +184,7 @@ export function EditFee({ fee }: { fee: EditableFee }) {
           ) : (
             <p className="text-xs leading-5 text-muted-foreground">
               {mode === "paid"
-                ? "This clears the remaining fee as an admin adjustment. It does not record money collected. To record a UPI payment, approve the student’s screenshot."
+                ? "This clears the remaining fee as an admin adjustment. It does not record money collected."
                 : "This restores the amount cleared by an admin. Verified payments remain in the history."}
             </p>
           )}
@@ -215,88 +216,8 @@ export function EditFee({ fee }: { fee: EditableFee }) {
     </Card>
   );
 }
-export function ReviewPayment({
-  id,
-  hasScreenshot,
-}: {
-  id: string;
-  hasScreenshot: boolean;
-}) {
-  const action = useAction(),
-    router = useRouter();
-  const [rejecting, setRejecting] = useState(false),
-    [note, setNote] = useState("");
-  const review = (decision: string) =>
-    action.run(async () => {
-      await api("/api/admin/review", { id, decision, note });
-      action.setSuccess(
-        decision === "verified" ? "Payment approved." : "Payment rejected.",
-      );
-      router.refresh();
-    });
-  return (
-    <div className="space-y-3">
-      {hasScreenshot && (
-        <Button asChild variant="outline" className="w-full">
-          <a
-            href={`/api/payments/${id}/screenshot`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            View screenshot
-            <ExternalLink />
-          </a>
-        </Button>
-      )}
-      {rejecting ? (
-        <>
-          <Field label="Why was it rejected?">
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="The student will see this reason"
-              maxLength={300}
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="destructive"
-              pending={action.busy || note.trim().length < 3}
-              pendingText="Loading..."
-              onClick={() => review("rejected")}
-            >
-              <X />Confirm rejection
-            </Button>
-            <Button variant="ghost" onClick={() => setRejecting(false)}>
-              Cancel
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="flex gap-2">
-          <Button
-            className="flex-1"
-            pending={action.busy || !hasScreenshot}
-            pendingText="Loading..."
-            onClick={() => review("verified")}
-          >
-            <Check />Approve
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={action.busy}
-            onClick={() => setRejecting(true)}
-          >
-            <X />
-            Reject
-          </Button>
-        </div>
-      )}
-      <Feedback error={action.error} success={action.success} />
-    </div>
-  );
-}
-export function Reconcile({ id }: { id: string }) {
+export function Reconcile({ id, canRetry = false }: { id: string; canRetry?: boolean }) {
+  const [retrySafe, setRetrySafe] = useState(false);
   const action = useAction(),
     router = useRouter();
   return (
@@ -307,10 +228,11 @@ export function Reconcile({ id }: { id: string }) {
         pendingText="Loading..."
         onClick={() =>
           action.run(async () => {
-            const r = await api<{ status: string; message?: string }>(
+            const r = await api<{ status: string; message?: string; retrySafe: boolean }>(
               "/api/payments/reconcile",
               { paymentId: id },
             );
+            setRetrySafe(r.retrySafe);
             action.setSuccess(
               r.status === "verified"
                 ? "Payment verified."
@@ -320,8 +242,11 @@ export function Reconcile({ id }: { id: string }) {
           })
         }
       >
-        <RefreshCw />Check payment
+        <RefreshCw />Check status
       </Button>
+      {canRetry && retrySafe && (
+        <Button asChild><Link href="/student/pay">Try payment again</Link></Button>
+      )}
       <Feedback error={action.error} success={action.success} />
     </div>
   );

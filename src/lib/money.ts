@@ -22,9 +22,9 @@ export function balance(amount: number, paid: number, waived = 0) {
 }
 export function feeStatus(
   outstanding: number,
-  manualPending: boolean,
+  paymentPending: boolean,
 ): "paid" | "pending" | "unpaid" {
-  return outstanding === 0 ? "paid" : manualPending ? "pending" : "unpaid";
+  return outstanding === 0 ? "paid" : paymentPending ? "pending" : "unpaid";
 }
 
 export function paymentMethodLabel(method: string) {

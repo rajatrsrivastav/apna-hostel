@@ -47,7 +47,7 @@ async function api(
 export function cashfreeCallbackUrls() {
   const origin = publicOrigin(true);
   return {
-    return_url: `${origin}/student/payment-status?order_id={order_id}`,
+    return_url: `${origin}/student/history?order_id={order_id}`,
     notify_url: `${origin}/api/cashfree/webhook`,
   };
 }

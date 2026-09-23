@@ -23,7 +23,7 @@ export function validateCashfreeOrder(
   }
 }
 
-// All callers (webhook, return URL, manual reconciliation) use authoritative state.
+// All callers (webhook, return URL, status checks) use authoritative state.
 export async function verifyCashfreePayment(orderId: string) {
   const [record] = await getDb()
     .select()

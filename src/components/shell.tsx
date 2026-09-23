@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
-  ClipboardCheck,
   History,
   CircleHelp,
   LogOut,
@@ -21,11 +20,6 @@ const adminNav = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/pending", label: "Pending students", icon: Users },
   { href: "/admin/students", label: "Students", icon: Users },
-  {
-    href: "/admin/verification",
-    label: "Verify payments",
-    icon: ClipboardCheck,
-  },
 ];
 const studentNav = [
   { href: "/dashboard", label: "My fee", icon: House },

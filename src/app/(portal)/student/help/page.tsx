@@ -40,12 +40,12 @@ export default async function Help() {
             "Open Payments, tap your online payment, then Check payment. If it is still waiting, contact the office.",
           ],
           [
-            "Uploaded a UPI screenshot?",
-            "The office checks it before marking your fee paid. You don’t need to pay again.",
+            "Left checkout before confirmation?",
+            "Open Payments and check the transaction status. If your account was debited, do not pay again yet.",
           ],
           [
             "Payment rejected?",
-            "Tap the payment to read the reason. Contact the office or upload the correct screenshot.",
+            "Tap the payment to read the reason. Contact the office before trying again.",
           ],
         ].map(([q, a]) => (
           <details
