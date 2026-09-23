@@ -7,3 +7,10 @@ coverage/
 playwright-report/
 test-results/
 .DS_Store
+.claude/skills/
+.cursor/cashfree-skills/
+.opencode/skills/cashfree-skills/
+.github/skills/cashfree-skills/
+.gemini/skills/cashfree-skills/
+.agent/skills/cashfree-skills/
+.agents/skills/cashfree-skills/
