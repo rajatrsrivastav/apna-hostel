@@ -4,8 +4,10 @@ import { getDb } from "@/db";
 import { feeDues, payments, studentProfiles, users } from "@/db/schema";
 import { generateMonthlyRent, indiaMonth } from "./rent";
 import { balance, feeStatus } from "./money";
+import { reconcileStudentCashfreePayments } from "./payment-verification";
 export async function studentData(userId: string) {
   await generateMonthlyRent(userId);
+  await reconcileStudentCashfreePayments(userId);
   const db = getDb();
   const [fees, history] = await Promise.all([
     db

@@ -35,16 +35,20 @@ export function Checkout({
   const router = useRouter();
 
   useEffect(() => {
-    // Refresh fee state when the student returns to the full checkout page.
-    if (compact || isLoading) return;
-    const timer = setInterval(() => router.refresh(), 15000);
+    // Also refresh pages restored by Back or the browser's page cache.
+    if (isLoading) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 60000);
     const refresh = () => router.refresh();
     window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
     };
-  }, [router, isLoading, compact]);
+  }, [router, isLoading]);
 
   const fee = dues.find((f) => f.id === selected);
   if (!fee)

@@ -4,12 +4,74 @@ import { getDb } from "@/db";
 import { payments } from "@/db/schema";
 import { AppError } from "./errors";
 import {
+  CashfreeApiError,
   fetchOrder,
   fetchOrderPayments,
   terminateOrder,
   type CashfreeOrder,
 } from "./cashfree";
 import { settleProviderPayment } from "./ledger";
+
+const ORDER_LIFETIME_MS = 30 * 60 * 1000;
+// A bank can resolve PENDING after the checkout expires. Give it time to do so,
+// then release the checkout while still recording any late capture for review.
+const PENDING_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const CLOSED_NOTE = "Cashfree order closed; safe to create a new checkout.";
+
+async function abandonPayment(record: typeof payments.$inferSelect) {
+  const [updated] = await getDb()
+    .update(payments)
+    .set({
+      status: "failed",
+      attemptStatus: "abandoned",
+      reviewNote: CLOSED_NOTE,
+    })
+    .where(
+      and(
+        eq(payments.id, record.id),
+        ne(payments.status, "verified"),
+        ne(payments.attemptStatus, "paid"),
+      ),
+    )
+    .returning();
+  return updated;
+}
+
+// Also covers a reservation whose create-order request never reached Cashfree.
+export async function reconcileStudentCashfreePayments(userId: string) {
+  const pending = await getDb()
+    .select()
+    .from(payments)
+    .where(
+      and(
+        eq(payments.userId, userId),
+        eq(payments.method, "cashfree"),
+        eq(payments.status, "pending"),
+      ),
+    );
+  await Promise.all(
+    pending.map(async (record) => {
+      if (!record.cashfreeOrderId) return;
+      try {
+        await closeAbandonedCashfreeCheckout(record.cashfreeOrderId);
+      } catch (error) {
+        if (
+          error instanceof CashfreeApiError &&
+          error.providerStatus === 404 &&
+          Date.now() - record.createdAt.getTime() >= ORDER_LIFETIME_MS
+        ) {
+          await abandonPayment(record);
+          return;
+        }
+        // A provider outage must not hide the student's fee page. The order API
+        // still checks this reservation before it can make another order.
+        console.error("[Cashfree] Student reconciliation unavailable", {
+          type: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    }),
+  );
+}
 
 export function validateCashfreeOrder(
   order: CashfreeOrder,
@@ -84,7 +146,7 @@ export async function verifyCashfreePayment(orderId: string) {
 /**
  * Reconcile a checkout the student has left. An active Cashfree order is only
  * closed after checking every payment attempt and confirming termination with
- * Cashfree. A successful or unresolved attempt is never abandoned.
+ * Cashfree. An unresolved attempt stays protected through the grace period.
  */
 export async function closeAbandonedCashfreeCheckout(orderId: string) {
   const [record] = await getDb()
@@ -108,7 +170,13 @@ export async function closeAbandonedCashfreeCheckout(orderId: string) {
     return { state: "paid" as const, payment };
   }
   const pending = attempts.find((attempt) => attempt.status === "PENDING");
-  if (pending) {
+  const pendingTimedOut =
+    Date.now() - record.createdAt.getTime() >=
+    ORDER_LIFETIME_MS + PENDING_GRACE_MS;
+  if (
+    pending &&
+    !(pendingTimedOut && ["EXPIRED", "TERMINATED"].includes(order.order_status))
+  ) {
     const payment = await settleProviderPayment({
       ...pending,
       status: "PENDING",
@@ -130,7 +198,13 @@ export async function closeAbandonedCashfreeCheckout(orderId: string) {
     "CANCELLED",
     "NOT_ATTEMPTED",
   ]);
-  if (attempts.some((attempt) => !retryable.has(attempt.status)))
+  if (
+    attempts.some(
+      (attempt) =>
+        !retryable.has(attempt.status) &&
+        !(pendingTimedOut && attempt.status === "PENDING"),
+    )
+  )
     return { state: "processing" as const, payment };
 
   if (order.order_status === "ACTIVE") {
@@ -153,35 +227,27 @@ export async function closeAbandonedCashfreeCheckout(orderId: string) {
     const latestPending = latestAttempts.find(
       (attempt) => attempt.status === "PENDING",
     );
-    if (latestPending) {
+    if (latestPending && !pendingTimedOut) {
       payment = await settleProviderPayment({
         ...latestPending,
         status: "PENDING",
       });
       return { state: "processing" as const, payment };
     }
-    if (latestAttempts.some((attempt) => !retryable.has(attempt.status)))
+    if (
+      latestAttempts.some(
+        (attempt) =>
+          !retryable.has(attempt.status) &&
+          !(pendingTimedOut && attempt.status === "PENDING"),
+      )
+    )
       return { state: "processing" as const, payment };
   }
 
   if (!["EXPIRED", "TERMINATED"].includes(order.order_status))
     return { state: "processing" as const, payment };
 
-  const [closed] = await getDb()
-    .update(payments)
-    .set({
-      status: "failed",
-      attemptStatus: "abandoned",
-      reviewNote: "Cashfree order closed; safe to create a new checkout.",
-    })
-    .where(
-      and(
-        eq(payments.id, record.id),
-        ne(payments.status, "verified"),
-        ne(payments.attemptStatus, "paid"),
-      ),
-    )
-    .returning();
+  const closed = await abandonPayment(record);
   if (closed) return { state: "retry" as const, payment: closed };
 
   // An earlier reconciliation may already have marked a definitive failure.

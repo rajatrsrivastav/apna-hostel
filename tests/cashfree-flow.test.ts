@@ -1,0 +1,297 @@
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import { eq } from "drizzle-orm";
+import * as schema from "@/db/schema";
+
+const state = vi.hoisted(() => ({
+  db: undefined as unknown,
+  user: undefined as unknown,
+  orders: new Map<
+    string,
+    {
+      order_id: string;
+      order_status: string;
+      order_amount: number;
+      order_currency: string;
+      payment_session_id: string;
+      order_expiry_time: string;
+      cf_order_id: string;
+    }
+  >(),
+  attempts: new Map<
+    string,
+    {
+      id: string;
+      order_id: string;
+      amount: number;
+      currency: string;
+      status: string;
+      time: string;
+    }[]
+  >(),
+  creates: 0,
+  offline: false,
+}));
+vi.mock("@/db", () => ({ getDb: () => state.db }));
+vi.mock("@/lib/access", () => ({ requireUser: async () => state.user }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => undefined }));
+vi.mock("@/lib/notifications", () => ({
+  notifyPaymentSuccess: async () => undefined,
+  notifyPaymentIncomplete: async () => undefined,
+}));
+vi.mock("@/lib/cashfree", () => {
+  class CashfreeApiError extends Error {
+    constructor(public providerStatus: number) {
+      super("provider unavailable");
+    }
+  }
+  const get = (id: string) => {
+    if (state.offline) throw new Error("network unavailable");
+    const order = state.orders.get(id);
+    if (!order) throw new CashfreeApiError(404);
+    return order;
+  };
+  return {
+    CashfreeApiError,
+    validWebhookSignature: () => true,
+    cashfreeCallbackUrls: () => ({
+      return_url: "https://portal.test/return",
+      notify_url: "https://portal.test/webhook",
+    }),
+    createOrder: async (p: {
+      order_id: string;
+      order_amount: number;
+      order_currency: string;
+      order_expiry_time: string;
+    }) => {
+      state.creates++;
+      const order = {
+        ...p,
+        cf_order_id: p.order_id,
+        order_status: "ACTIVE",
+        payment_session_id: `session-${p.order_id}`,
+      };
+      state.orders.set(p.order_id, order);
+      return order;
+    },
+    fetchOrder: async (id: string) => get(id),
+    fetchOrderPayments: async (id: string) => {
+      get(id);
+      return state.attempts.get(id) ?? [];
+    },
+    terminateOrder: async (id: string) => {
+      const order = get(id);
+      order.order_status = "TERMINATED";
+      return order;
+    },
+  };
+});
+
+import { POST as createPaymentOrder } from "@/app/api/payments/order/route";
+import { POST as cancelPayment } from "@/app/api/payments/cancel/route";
+import { POST as paymentWebhook } from "@/app/api/cashfree/webhook/route";
+import {
+  verifyCashfreePayment,
+  reconcileStudentCashfreePayments,
+} from "@/lib/payment-verification";
+
+let client: PGlite;
+let db: ReturnType<typeof drizzle<typeof schema>>;
+let serial = 0;
+beforeAll(async () => {
+  process.env.BETTER_AUTH_URL = "https://portal.test";
+  process.env.CASHFREE_SECRET_KEY = "test-only-secret";
+  client = new PGlite();
+  db = drizzle(client, { schema });
+  state.db = db;
+  await migrate(db, { migrationsFolder: "./drizzle" });
+});
+afterAll(async () => {
+  await client.close();
+});
+beforeEach(() => {
+  state.orders.clear();
+  state.attempts.clear();
+  state.creates = 0;
+  state.offline = false;
+});
+
+async function student() {
+  const id = `cashfree-student-${++serial}`;
+  await db
+    .insert(schema.users)
+    .values({
+      id,
+      name: id,
+      email: `${id}@example.test`,
+      role: "student",
+      approvalStatus: "accepted",
+    });
+  await db
+    .insert(schema.studentProfiles)
+    .values({
+      userId: id,
+      fullName: "Test Student",
+      phone: "9876543210",
+      course: "Test",
+      trade: "Test",
+      studyYear: "1",
+    });
+  const feeId = `fee-${id}`;
+  await db
+    .insert(schema.feeDues)
+    .values({
+      id: feeId,
+      userId: id,
+      label: "Rent",
+      amount: 10000,
+      dueDate: "2026-09-30",
+    });
+  state.user = { id, email: `${id}@example.test`, role: "student" };
+  return { id, feeId };
+}
+function request(path: string, body: object) {
+  return new Request(`https://portal.test/api/payments/${path}`, {
+    method: "POST",
+    headers: {
+      origin: "https://portal.test",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+async function order(feeDueId: string) {
+  const response = await createPaymentOrder(request("order", { feeDueId }));
+  return {
+    response,
+    body: (await response.json()) as {
+      orderId: string;
+      payment_session_id?: string;
+      alreadyPaid?: boolean;
+    },
+  };
+}
+async function record(orderId: string) {
+  return (
+    await db
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.cashfreeOrderId, orderId))
+  )[0];
+}
+function attempt(orderId: string, status: string) {
+  state.attempts.set(orderId, [
+    {
+      id: `pay-${orderId}`,
+      order_id: orderId,
+      amount: 10000,
+      currency: "INR",
+      status,
+      time: new Date().toISOString(),
+    },
+  ]);
+}
+
+it("reuses one order for double clicks and a lost response", async () => {
+  const { feeId } = await student();
+  const first = await order(feeId);
+  const second = await order(feeId);
+  expect(first.response.status).toBe(200);
+  expect(second.body.orderId).toBe(first.body.orderId);
+  expect(state.creates).toBe(1);
+});
+
+it.each(["FAILED", "USER_DROPPED", "CANCELLED", "VOID"])(
+  "releases a %s attempt when the student returns",
+  async (status) => {
+    const { id, feeId } = await student();
+    const first = (await order(feeId)).body.orderId;
+    attempt(first, status);
+    await reconcileStudentCashfreePayments(id);
+    expect((await record(first)).attemptStatus).toBe("abandoned");
+    await verifyCashfreePayment(first);
+    expect((await record(first)).attemptStatus).toBe("abandoned");
+    expect((await order(feeId)).body.orderId).not.toBe(first);
+  },
+);
+
+it("releases abandoned, Back, and refreshed checkouts with no attempt", async () => {
+  const { id, feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  await reconcileStudentCashfreePayments(id);
+  expect(state.orders.get(first)?.order_status).toBe("TERMINATED");
+  expect((await order(feeId)).body.orderId).not.toBe(first);
+});
+
+it("keeps a real pending payment locked, then expires it after the grace period", async () => {
+  const { id, feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  attempt(first, "PENDING");
+  await reconcileStudentCashfreePayments(id);
+  expect((await record(first)).attemptStatus).toBe("pending");
+  await db
+    .update(schema.payments)
+    .set({ createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) })
+    .where(eq(schema.payments.cashfreeOrderId, first));
+  state.orders.get(first)!.order_status = "EXPIRED";
+  await reconcileStudentCashfreePayments(id);
+  expect((await record(first)).attemptStatus).toBe("abandoned");
+  await verifyCashfreePayment(first);
+  expect((await record(first)).attemptStatus).toBe("abandoned");
+  expect((await order(feeId)).body.orderId).not.toBe(first);
+});
+
+it("expires an unattempted Cashfree order and releases its fee", async () => {
+  const { id, feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  state.orders.get(first)!.order_status = "EXPIRED";
+  await reconcileStudentCashfreePayments(id);
+  expect((await record(first)).attemptStatus).toBe("abandoned");
+  expect((await order(feeId)).body.orderId).not.toBe(first);
+});
+
+it("credits only a verified Cashfree success and tolerates a delayed webhook", async () => {
+  const { feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  attempt(first, "SUCCESS");
+  await expect(verifyCashfreePayment(first)).rejects.toThrow("processing");
+  expect((await record(first)).status).toBe("pending");
+  state.orders.get(first)!.order_status = "PAID";
+  await verifyCashfreePayment(first);
+  await verifyCashfreePayment(first);
+  expect((await record(first)).status).toBe("verified");
+  expect((await order(feeId)).response.status).not.toBe(200);
+});
+
+it("keeps a reservation during a provider outage and safely retries", async () => {
+  const { id, feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  state.offline = true;
+  await reconcileStudentCashfreePayments(id);
+  expect((await record(first)).status).toBe("pending");
+  state.offline = false;
+  const cancel = await cancelPayment(request("cancel", { orderId: first }));
+  expect((await cancel.json()).status).toBe("retry");
+  expect((await order(feeId)).body.orderId).not.toBe(first);
+});
+
+it("retries a delayed webhook and shares the settlement record with page verification", async () => {
+  const { feeId } = await student();
+  const first = (await order(feeId)).body.orderId;
+  attempt(first, "SUCCESS");
+  const event = new Request("https://portal.test/api/cashfree/webhook", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "PAYMENT_SUCCESS_WEBHOOK",
+      data: { order: { order_id: first } },
+    }),
+    headers: { "x-webhook-timestamp": "123", "x-webhook-signature": "test" },
+  });
+  expect((await paymentWebhook(event.clone())).status).toBe(503);
+  state.orders.get(first)!.order_status = "PAID";
+  expect((await paymentWebhook(event.clone())).status).toBe(200);
+  await verifyCashfreePayment(first);
+  expect((await record(first)).status).toBe("verified");
+});

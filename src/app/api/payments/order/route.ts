@@ -67,21 +67,29 @@ export const POST = mutation(async (req) => {
   }
   if (order && existing) {
     validateCashfreeOrder(order, record);
-    const reconciliation = await closeAbandonedCashfreeCheckout(orderId);
-    if (reconciliation.state === "paid")
-      return Response.json({ orderId, alreadyPaid: true });
-    if (reconciliation.state === "processing")
-      throw new AppError(
-        "Payment is still processing. Check payment status before trying again.",
-        409,
-      );
-    reservation = await reservePayment(user.id, feeDueId);
-    ({ record, existing } = reservation);
-    orderId = record.cashfreeOrderId!;
-    expiresAt = new Date(
-      record.createdAt.getTime() + 30 * 60 * 1000,
-    ).toISOString();
-    order = undefined;
+    // Concurrent clicks and retries of a lost response reuse the same live
+    // session. A subsequent portal visit reconciles an abandoned checkout.
+    if (!(
+      order.order_status === "ACTIVE" &&
+      order.payment_session_id &&
+      Date.now() - record.createdAt.getTime() < 2 * 60 * 1000
+    )) {
+      const reconciliation = await closeAbandonedCashfreeCheckout(orderId);
+      if (reconciliation.state === "paid")
+        return Response.json({ orderId, alreadyPaid: true });
+      if (reconciliation.state === "processing")
+        throw new AppError(
+          "Payment is still processing. Check payment status before trying again.",
+          409,
+        );
+      reservation = await reservePayment(user.id, feeDueId);
+      ({ record, existing } = reservation);
+      orderId = record.cashfreeOrderId!;
+      expiresAt = new Date(
+        record.createdAt.getTime() + 30 * 60 * 1000,
+      ).toISOString();
+      order = undefined;
+    }
   }
   if (!order) {
     order = await createReservedOrder();
