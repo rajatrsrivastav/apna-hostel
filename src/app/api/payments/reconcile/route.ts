@@ -7,8 +7,7 @@ import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
 import { idSchema } from "@/lib/validation";
-import { verifyCashfreePayment } from "@/lib/payment-verification";
-import { fetchOrder, fetchOrderPayments } from "@/lib/cashfree";
+import { reconcileCashfreeCheckout } from "@/lib/payment-verification";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/reconcile", 20);
@@ -23,20 +22,23 @@ export const POST = mutation(async (req) => {
     throw new AppError("Payment not found.", 404);
   if (!record.cashfreeOrderId)
     throw new AppError("This is not an online payment.");
-  const payment = await verifyCashfreePayment(record.cashfreeOrderId);
-  const order = await fetchOrder(record.cashfreeOrderId);
-  const attempts = await fetchOrderPayments(record.cashfreeOrderId);
-  const retrySafe = ["EXPIRED", "TERMINATED"].includes(order.order_status) &&
-    !attempts.some((attempt) => ["SUCCESS", "PENDING"].includes(attempt.status)) &&
-    payment.attemptStatus !== "paid" && payment.status !== "verified";
+  const { payment, state } = await reconcileCashfreeCheckout(
+    record.cashfreeOrderId,
+  );
+  const retrySafe = state === "retry";
   return Response.json({
     retrySafe,
+    state,
     status: payment.status,
     message:
       payment.attemptStatus === "paid"
         ? payment.status === "verified"
           ? "Payment verified."
           : "Payment received; office review required. Please do not pay again."
-        : "Payment is not confirmed yet. Check again before making another payment.",
+        : state === "retry"
+          ? "Payment was not completed. You can pay again."
+          : state === "closing"
+            ? "Your previous checkout is closing. We are checking when you can retry."
+            : "Cashfree is confirming a bank payment. Please wait before paying again.",
   });
 });

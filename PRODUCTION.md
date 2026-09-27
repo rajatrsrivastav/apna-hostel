@@ -33,10 +33,10 @@ All values are server-side; `.env.example` contains empty placeholders, not cred
 
 The API uses `https://api.cashfree.com/pg`, API version `2026-01-01`, and the browser SDK uses production mode only. Callback URLs derive exclusively from `BETTER_AUTH_URL`:
 
-- Return: `/student/payment-status?order_id={order_id}`
+- Return: `/student/history?order_id={order_id}`
 - Notify: `/api/cashfree/webhook`
 
-Order amounts come from the locked fee ledger. A durable reservation and stable idempotency key allow retry after timeouts. New orders expire after 30 minutes; active orders are reused regardless of local age. Pending bank confirmation never becomes a failure solely because of elapsed time. Signature validation uses timestamp plus raw bytes before JSON parsing. Settlement requires matching order/payment identity, amount, INR currency, `PAID` order and `SUCCESS` attempt. Duplicates do not credit rent twice, and transient failures return 503 for redelivery.
+Order amounts come from the locked fee ledger. A durable reservation and stable idempotency key allow retry after timeouts. New orders expire after 30 minutes; active orders are reused regardless of local age. Returning from or closing checkout reconciles Cashfree status without terminating an unpaid ACTIVE order. NOT_ATTEMPTED and failed/cancelled attempts can retry on that same order; only confirmed closed orders get replaced. Legacy TERMINATION_REQUESTED orders are shown as closing, with bounded automatic checks, separately from a PENDING bank transaction. Pending bank confirmation never becomes a failure solely because of elapsed time. Signature validation uses timestamp plus raw bytes before JSON parsing. Settlement requires matching order/payment identity, amount, INR currency, `PAID` order and `SUCCESS` attempt. Duplicates do not credit rent twice, and transient failures return 503 for redelivery.
 
 ## Verification checklist
 

@@ -114,14 +114,6 @@ export async function fetchOrder(orderId: string) {
   return orderSchema.parse(await api(`orders/${encodeURIComponent(orderId)}`));
 }
 
-export async function terminateOrder(orderId: string) {
-  return orderSchema.parse(
-    await api(`orders/${encodeURIComponent(orderId)}`, "PATCH", {
-      order_status: "TERMINATED",
-    }),
-  );
-}
-
 const paymentSchema = z.object({
   cf_payment_id: providerId,
   // The Get Payments for an Order response does not always include order_id.

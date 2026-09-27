@@ -12,6 +12,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Feedback, Field, Spinner } from "./form-kit";
 import { dateLabel, money } from "@/lib/money";
+import { prepareCheckout, watchCheckoutReturn } from "@/lib/checkout-session";
 
 export type PayableFee = {
   id: string;
@@ -31,24 +32,31 @@ export function Checkout({
   const [selected, setSelected] = useState(dues[0]?.id ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const [payError, setPayError] = useState("");
+  const [payNotice, setPayNotice] = useState("");
+  const activeRequest = useRef<AbortController | null>(null);
   const paymentLock = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
-    // Also refresh pages restored by Back or the browser's page cache.
-    if (isLoading) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
     }, 60000);
-    const refresh = () => router.refresh();
-    window.addEventListener("focus", refresh);
-    window.addEventListener("pageshow", refresh);
+    const stopWatching = watchCheckoutReturn(
+      window,
+      () => router.refresh(),
+      () => {
+        activeRequest.current?.abort();
+        paymentLock.current = false;
+        setIsLoading(false);
+        setPayNotice("");
+      },
+    );
     return () => {
       clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("pageshow", refresh);
+      stopWatching();
+      activeRequest.current?.abort();
     };
-  }, [router, isLoading]);
+  }, [router]);
 
   const fee = dues.find((f) => f.id === selected);
   if (!fee)
@@ -70,25 +78,26 @@ export function Checkout({
     paymentLock.current = true;
     setIsLoading(true);
     setPayError("");
+    setPayNotice("");
+    const controller = new AbortController();
+    activeRequest.current = controller;
     let checkoutOrderId: string | null = null;
 
     try {
-      // 1. Create order via our backend
-      const res = await fetch("/api/payments/order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ feeDueId: fee!.id }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(
-          (err as { error?: string }).error ||
-            `Server error (${res.status}). Please try again.`,
+      const data = await prepareCheckout(
+        fee!.id,
+        controller.signal,
+        setPayNotice,
+      );
+      if (data.state) {
+        setPayNotice(
+          data.state === "closing"
+            ? "Cashfree is still closing the previous checkout. Tap Pay Now to check again."
+            : "Your bank payment is awaiting confirmation. Tap Pay Now to check its status.",
         );
+        return;
       }
-
-      const data = await res.json();
+      setPayNotice("");
       const orderId = data.orderId;
       if (typeof orderId !== "string" || !orderId)
         throw new Error("Could not start checkout. Please try again.");
@@ -114,21 +123,25 @@ export function Checkout({
       });
       // Cashfree owns external bank redirects. A returned result (including a
       // dismissed modal) goes to Payments for authoritative server verification.
-      if (result?.redirect) return;
+      if (controller.signal.aborted || result?.redirect) return;
       await fetch("/api/payments/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId }),
+        signal: AbortSignal.timeout(15000),
       }).catch(() => undefined);
       router.replace(
         `/student/history?order_id=${encodeURIComponent(orderId)}`,
       );
     } catch (error: unknown) {
+      if (controller.signal.aborted) return;
+      setPayNotice("");
       if (checkoutOrderId) {
         await fetch("/api/payments/cancel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId: checkoutOrderId }),
+          signal: AbortSignal.timeout(15000),
         }).catch(() => undefined);
         router.replace(
           `/student/history?order_id=${encodeURIComponent(checkoutOrderId)}`,
@@ -138,8 +151,10 @@ export function Checkout({
       const message = error instanceof Error ? error.message : String(error);
       setPayError(message || "Payment was not completed. You can try again.");
     } finally {
-      paymentLock.current = false;
-      setIsLoading(false);
+      if (activeRequest.current === controller) {
+        paymentLock.current = false;
+        setIsLoading(false);
+      }
     }
   }
 
@@ -158,6 +173,11 @@ export function Checkout({
           <ArrowRight className="ml-auto" />
         </Button>
         <Feedback error={payError} />
+        {payNotice && (
+          <p role="status" className="mt-3 text-sm text-muted-foreground">
+            {payNotice}
+          </p>
+        )}
       </div>
     );
   }
@@ -217,6 +237,11 @@ export function Checkout({
         </button>
       </>
       <Feedback error={payError} />
+      {payNotice && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {payNotice}
+        </p>
+      )}
       <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="size-4" />
         Safe payments via Cashfree.

@@ -63,7 +63,9 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       return payment;
     // Failed attempts are not terminal for an order: Cashfree can retry the same order.
     if (
-      ["FAILED", "USER_DROPPED", "VOID", "CANCELLED"].includes(provider.status)
+      ["FAILED", "USER_DROPPED", "VOID", "CANCELLED", "EXPIRED"].includes(
+        provider.status,
+      )
     ) {
       const attemptStatus =
         provider.status === "USER_DROPPED" || provider.status === "CANCELLED"
@@ -88,14 +90,6 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     }
     if (provider.status !== "SUCCESS") {
       if (provider.status === "PENDING") {
-        // A delayed status check must not reopen a checkout already closed by
-        // reconciliation. Late SUCCESS is still handled above for refund review.
-        if (
-          payment.attemptStatus === "abandoned" ||
-          Date.now() - payment.createdAt.getTime() >=
-            7 * 24 * 60 * 60 * 1000 + 30 * 60 * 1000
-        )
-          return payment;
         const [otherPending] = await tx
           .select({ id: payments.id })
           .from(payments)

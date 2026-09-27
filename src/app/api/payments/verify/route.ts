@@ -6,8 +6,7 @@ import { payments } from "@/db/schema";
 import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
-import { verifyCashfreePayment } from "@/lib/payment-verification";
-import { fetchOrder, fetchOrderPayments } from "@/lib/cashfree";
+import { reconcileCashfreeCheckout } from "@/lib/payment-verification";
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/verify", 30);
@@ -20,15 +19,11 @@ export const POST = mutation(async (req) => {
     .where(eq(payments.cashfreeOrderId, order_id));
   if (!record || record.userId !== user.id)
     throw new AppError("Payment not found.", 404);
-  const payment = await verifyCashfreePayment(order_id);
-  const order = await fetchOrder(order_id);
-  const attempts = await fetchOrderPayments(order_id);
-  const retrySafe =
-    ["EXPIRED", "TERMINATED"].includes(order.order_status) &&
-    !attempts.some((attempt) => ["SUCCESS", "PENDING"].includes(attempt.status)) &&
-    payment.attemptStatus !== "paid" && payment.status !== "verified";
+  const { payment, state } = await reconcileCashfreeCheckout(order_id);
+  const retrySafe = state === "retry";
   return Response.json({
     retrySafe,
+    state,
     attemptStatus: payment.attemptStatus,
     status: payment.status,
     id: payment.id,
@@ -38,6 +33,10 @@ export const POST = mutation(async (req) => {
         ? "Payment received. The office must review it because your fee balance changed. Please do not pay again."
         : payment.status === "verified"
           ? "Payment verified."
-          : "Payment is not confirmed yet. Check again before making another payment.",
+          : state === "retry"
+            ? "Payment was not completed. You can pay again."
+            : state === "closing"
+              ? "Your previous checkout is closing. We are checking when you can retry."
+              : "Cashfree is confirming a bank payment. Please wait before paying again.",
   });
 });
