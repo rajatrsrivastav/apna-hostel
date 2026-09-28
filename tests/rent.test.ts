@@ -8,6 +8,7 @@ import * as schema from "@/db/schema";
 const shared = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/db", () => ({ getDb: () => shared.db }));
 import { generateMonthlyRent } from "@/lib/rent";
+import { adminStudents } from "@/lib/data";
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 beforeAll(async () => {
@@ -34,4 +35,25 @@ it("starts ₹1000 monthly rent on 1 October 2026 and avoids duplicates", async 
   expect(dues.map(f => [f.rentMonth, f.amount]).sort()).toEqual([
     ["2026-10", 100_000], ["2026-11", 100_000],
   ]);
+});
+
+it("shows no admin outstanding before October, then charges only October rent", async () => {
+  await db.insert(schema.users).values({
+    id: "dashboard-student", name: "Dashboard student", email: "dashboard@example.test",
+    role: "student", approvalStatus: "accepted", monthlyRent: 100_000,
+    acceptedAt: new Date("2026-09-01T00:00:00Z"),
+  });
+  await db.insert(schema.feeDues).values({
+    id: "old-september-due", userId: "dashboard-student", label: "Rent · Sep 2026",
+    amount: 100_000, dueDate: "2026-09-30", rentMonth: "2026-09",
+  });
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-09-30T18:29:59Z"));
+    expect((await adminStudents()).find((student) => student.id === "dashboard-student")?.outstanding).toBe(0);
+    vi.setSystemTime(new Date("2026-09-30T18:30:00Z"));
+    expect((await adminStudents()).find((student) => student.id === "dashboard-student")?.outstanding).toBe(100_000);
+  } finally {
+    vi.useRealTimers();
+  }
 });
