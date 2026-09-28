@@ -13,12 +13,14 @@ import { Card } from "./ui/card";
 import { Feedback, Field, Spinner } from "./form-kit";
 import { dateLabel, money } from "@/lib/money";
 import { prepareCheckout, watchCheckoutReturn } from "@/lib/checkout-session";
+import type { StudentPayment } from "@/lib/installments";
 
 export type PayableFee = {
   id: string;
   label: string;
   dueDate: string;
   outstanding: number;
+  nextPayment: StudentPayment | null;
   pending?: { id: string; method: string };
 };
 
@@ -37,7 +39,7 @@ export function Checkout({
     ? null
     : import("@cashfreepayments/cashfree-js").then(({ load }) => load({ mode })), [mode]);
   const [selected, setSelected] = useState(dues[0]?.id ?? "");
-  const [amount, setAmount] = useState(dues[0] ? (dues[0].outstanding / 100).toFixed(2) : "");
+  const [amount, setAmount] = useState("");
   const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [payError, setPayError] = useState("");
@@ -68,6 +70,9 @@ export function Checkout({
   }, [router]);
 
   const fee = dues.find((f) => f.id === selected);
+  const paymentAmount = adminSelf
+    ? amount
+    : fee?.nextPayment ? (fee.nextPayment.amount / 100).toFixed(2) : "";
   if (!fee && !adminSelf)
     return (
       <Card className="text-center">
@@ -84,12 +89,12 @@ export function Checkout({
 
   async function handlePayment() {
     if (paymentLock.current) return;
-    if (!/^\d{1,6}(\.\d{1,2})?$/.test(amount) || Number(amount) < 1 || Number(amount) > 100000) {
-      setPayError("Enter an amount from ₹1 to ₹1,00,000.");
+    if (!adminSelf && !fee?.nextPayment) {
+      setPayError("This fee needs office review before another payment.");
       return;
     }
-    if (!adminSelf && Math.round(Number(amount) * 100) > fee!.outstanding) {
-      setPayError("Amount exceeds the remaining fee balance.");
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(paymentAmount) || Number(paymentAmount) < 1 || Number(paymentAmount) > 100000) {
+      setPayError("Enter an amount from ₹1 to ₹1,00,000.");
       return;
     }
     if (adminSelf && !/^[6-9]\d{9}$/.test(phone)) {
@@ -106,7 +111,7 @@ export function Checkout({
 
     try {
       const data = await prepareCheckout(
-        { ...(adminSelf ? {} : { feeDueId: fee!.id }), amount, ...(adminSelf ? { phone } : {}) },
+        { ...(adminSelf ? {} : { feeDueId: fee!.id }), amount: paymentAmount, ...(adminSelf ? { phone } : {}) },
         controller.signal,
         setPayNotice,
       );
@@ -133,7 +138,7 @@ export function Checkout({
       if (typeof paymentSessionId !== "string" || !paymentSessionId) {
         throw new Error("Could not start checkout. Please try again.");
       }
-      if (data.amount !== Math.round(Number(amount) * 100))
+      if (data.amount !== Math.round(Number(paymentAmount) * 100))
         throw new Error("An earlier checkout has a different amount. Check its status before paying again.");
       checkoutOrderId = orderId;
       const cashfree = await cashfreeClient;
@@ -181,16 +186,21 @@ export function Checkout({
     }
   }
 
-  const disabled = isLoading;
+  const disabled = isLoading || (!adminSelf && !fee?.nextPayment);
   const amountInput = (
     <div className="mb-3 space-y-3">
-      <Field label="Payment amount / भुगतान राशि (₹)">
-        <input inputMode="decimal" type="text" value={amount} disabled={disabled}
-          onChange={(event) => setAmount(event.target.value)} placeholder="500.00" />
+      <Field label={adminSelf ? "Payment amount / भुगतान राशि (₹)" : fee?.nextPayment?.installments === 2
+        ? `${fee.nextPayment.installment === 1 ? "First" : "Second"} rent payment (${fee.nextPayment.installment} of 2) / भुगतान राशि (₹)`
+        : "Payment amount / भुगतान राशि (₹)"}>
+        <input inputMode="decimal" type="text" value={paymentAmount} disabled={isLoading}
+          readOnly={!adminSelf}
+          onChange={adminSelf ? (event) => setAmount(event.target.value) : undefined}
+          placeholder={adminSelf ? "500.00" : undefined} />
       </Field>
       {adminSelf && <Field label="Mobile number"><input inputMode="tel" type="tel" value={phone}
         disabled={disabled} onChange={(event) => setPhone(event.target.value)} placeholder="10-digit mobile number" /></Field>}
-      <p className="text-xs text-muted-foreground">Cashfree checkout amount: {money(Math.round((Number(amount) || 0) * 100))}</p>
+      <p className="text-xs text-muted-foreground">Cashfree checkout amount: {money(Math.round((Number(paymentAmount) || 0) * 100))}</p>
+      {!adminSelf && fee && !fee.nextPayment && <p className="text-xs text-muted-foreground">This fee needs office review before another payment.</p>}
     </div>
   );
   if (compact) {
@@ -225,8 +235,6 @@ export function Checkout({
             disabled={disabled}
             onChange={(e) => {
               setSelected(e.target.value);
-              const next = dues.find((f) => f.id === e.target.value);
-              setAmount(next ? (next.outstanding / 100).toFixed(2) : "");
             }}
           >
             {dues.map((f) => (

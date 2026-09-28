@@ -104,6 +104,7 @@ import {
   verifyCashfreePayment,
   reconcileStudentCashfreePayments,
 } from "@/lib/payment-verification";
+import { nextStudentPayment } from "@/lib/installments";
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -150,8 +151,9 @@ async function student() {
     id: feeId,
     userId: id,
     label: "Rent",
-    amount: 10000,
+    amount: 100000,
     dueDate: "2026-10-31",
+    rentMonth: "2026-10",
   });
   state.user = { id, email: `${id}@example.test`, role: "student" };
   return { id, feeId };
@@ -166,7 +168,7 @@ function request(path: string, body: object) {
     body: JSON.stringify(body),
   });
 }
-async function order(feeDueId: string, amount = "100.00") {
+async function order(feeDueId: string, amount = "500.00") {
   const response = await createPaymentOrder(request("order", { feeDueId, amount }));
   return {
     response,
@@ -185,7 +187,7 @@ async function record(orderId: string) {
       .where(eq(schema.payments.cashfreeOrderId, orderId))
   )[0];
 }
-function attempt(orderId: string, status: string, amount = 10000) {
+function attempt(orderId: string, status: string, amount = 50000) {
   state.attempts.set(orderId, [
     {
       id: `pay-${orderId}`,
@@ -198,28 +200,77 @@ function attempt(orderId: string, status: string, amount = 10000) {
   ]);
 }
 
-it("rejects a browser amount above the server fee balance", async () => {
+it("splits odd paise without a third payment and blocks an unsplittable rent", () => {
+  expect(nextStudentPayment({ outstanding: 100001, verifiedPaymentCount: 0, rentMonth: "2026-10" }))
+    .toEqual({ amount: 50001, installment: 1, installments: 2 });
+  expect(nextStudentPayment({ outstanding: 50000, verifiedPaymentCount: 1, rentMonth: "2026-10" }))
+    .toEqual({ amount: 50000, installment: 2, installments: 2 });
+  expect(nextStudentPayment({ outstanding: 150, verifiedPaymentCount: 0, rentMonth: "2026-10" }))
+    .toBeNull();
+});
+
+it("rejects a browser amount outside the fixed first rent installment", async () => {
   const { feeId } = await student();
-  const response = await order(feeId, "101.00");
-  expect(response.response.status).toBe(409);
+  expect((await order(feeId, "499.00")).response.status).toBe(409);
+  expect((await order(feeId, "501.00")).response.status).toBe(409);
+  expect((await order(feeId, "1000.00")).response.status).toBe(409);
   expect(state.creates).toBe(0);
 });
 
-it("credits two ₹50 partial payments once each against one ₹100 due", async () => {
+it("credits exactly two ₹500 installments once each against ₹1000 rent", async () => {
   const { feeId } = await student();
-  const first = (await order(feeId, "50.00")).body.orderId;
-  attempt(first, "SUCCESS", 5000);
+  const first = (await order(feeId)).body.orderId;
+  attempt(first, "SUCCESS");
   state.orders.get(first)!.order_status = "PAID";
   await verifyCashfreePayment(first);
   await verifyCashfreePayment(first);
-  const second = (await order(feeId, "50.00")).body.orderId;
+  expect((await order(feeId, "400.00")).response.status).toBe(409);
+  const second = (await order(feeId)).body.orderId;
   expect(second).not.toBe(first);
-  attempt(second, "SUCCESS", 5000);
+  attempt(second, "SUCCESS");
   state.orders.get(second)!.order_status = "PAID";
   await verifyCashfreePayment(second);
   const paid = await db.select().from(schema.payments).where(eq(schema.payments.feeDueId, feeId));
-  expect(paid.filter((p) => p.status === "verified").map((p) => p.amount).sort()).toEqual([5000, 5000]);
+  expect(paid.filter((p) => p.status === "verified").map((p) => p.amount).sort()).toEqual([50000, 50000]);
   expect((await order(feeId, "1.00")).response.status).not.toBe(200);
+});
+
+it("uses the remaining balance for the second payment after an older partial collection", async () => {
+  const { id, feeId } = await student();
+  await db.insert(schema.payments).values({
+    id: `legacy-part-${id}`, userId: id, feeDueId: feeId,
+    amount: 30000, method: "admin_manual", status: "verified",
+  });
+  expect((await order(feeId, "500.00")).response.status).toBe(409);
+  expect((await order(feeId, "700.00")).response.status).toBe(200);
+});
+
+it("does not create a third rent order after two verified collections", async () => {
+  const { id, feeId } = await student();
+  await db.insert(schema.payments).values([1, 2].map((part) => ({
+    id: `legacy-part-${id}-${part}`, userId: id, feeDueId: feeId,
+    amount: 20000, method: "admin_manual" as const, status: "verified" as const,
+  })));
+  expect((await order(feeId, "600.00")).response.status).toBe(409);
+  expect(state.creates).toBe(0);
+});
+
+it("does not reopen an older full-rent checkout after the installment rule changes", async () => {
+  const { id, feeId } = await student();
+  const orderId = `legacy-full-${id}`;
+  await db.insert(schema.payments).values({
+    id: orderId, userId: id, feeDueId: feeId, amount: 100000,
+    method: "cashfree", status: "pending", attemptStatus: "checkout_started",
+    cashfreeOrderId: orderId,
+  });
+  state.orders.set(orderId, {
+    order_id: orderId, cf_order_id: orderId, order_status: "ACTIVE",
+    order_amount: 1000, order_currency: "INR",
+    payment_session_id: `session-${orderId}`,
+    order_expiry_time: new Date(Date.now() + 30 * 60_000).toISOString(),
+  });
+  expect((await order(feeId)).response.status).toBe(409);
+  expect(state.creates).toBe(0);
 });
 
 it("records an admin custom payment on the admin account without rent credit", async () => {
@@ -315,7 +366,7 @@ it("credits only a verified Cashfree success and tolerates a delayed webhook", a
   await verifyCashfreePayment(first);
   await verifyCashfreePayment(first);
   expect((await record(first)).status).toBe("verified");
-  expect((await order(feeId)).response.status).not.toBe(200);
+  expect((await order(feeId)).body.orderId).not.toBe(first);
 });
 
 it("keeps a reservation during a provider outage and safely retries", async () => {

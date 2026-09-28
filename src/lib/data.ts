@@ -6,6 +6,7 @@ import { generateMonthlyRent, indiaMonth } from "./rent";
 import { balance, feeStatus } from "./money";
 import { reconcileStudentCashfreePayments } from "./payment-verification";
 import { collectionStarted, isPostLaunchFee, FEE_COLLECTION_START_DATE } from "./fee-policy";
+import { nextStudentPayment } from "./installments";
 export async function studentData(userId: string) {
   await generateMonthlyRent(userId);
   await reconcileStudentCashfreePayments(userId);
@@ -24,14 +25,16 @@ export async function studentData(userId: string) {
   ]);
   const dues = fees.filter((fee) => collectionStarted() && isPostLaunchFee(fee)).map((fee) => {
     const related = history.filter((p) => p.feeDueId === fee.id);
-    const paid = related
-      .filter((p) => p.status === "verified")
-      .reduce((s, p) => s + p.amount, 0);
+    const verified = related.filter((p) => p.status === "verified");
+    const paid = verified.reduce((s, p) => s + p.amount, 0);
     const outstanding = balance(fee.amount, paid, fee.waivedAmount);
     return {
       ...fee,
       paid,
       outstanding,
+      nextPayment: nextStudentPayment({
+        outstanding, verifiedPaymentCount: verified.length, rentMonth: fee.rentMonth,
+      }),
       status: feeStatus(
         outstanding,
         related.some((p) => p.status === "pending"),

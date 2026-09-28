@@ -19,6 +19,7 @@ export default async function Pay() {
             id: f.id,
             label: f.label,
             outstanding: f.outstanding,
+            nextPayment: f.nextPayment,
             dueDate: f.dueDate,
             pending: f.pending
               ? { id: f.pending.id, method: f.pending.method }

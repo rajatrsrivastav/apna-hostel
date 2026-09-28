@@ -66,7 +66,7 @@ References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/
 - Admin accepts → complete full name, phone, ITI/Diploma, trade, year/semester.
 - Pending/rejected accounts cannot access dashboard pages, receipts, or payment/profile APIs.
 - My fee → Current Month Rent, Previous Due, Total Due, status, and **Pay Now / फीस भरें**.
-- Enter a full or partial amount (minimum ₹1) against an unpaid fee, then pay online through Cashfree.
+- Monthly rent is paid through Cashfree in two fixed halves (₹500 then ₹500 for ₹1,000 rent). The student amount is read-only, and the server verifies each installment against the remaining fee. Other student fees are paid in full.
 - Payments → history, status and a printable receipt once verified.
 - Help → office call button when `HOSTEL_SUPPORT_PHONE` is set.
 
