@@ -52,6 +52,6 @@ Student order amounts are checked against the locked fee balance, including part
 
 ## Remaining external checks
 
-Before launch, confirm the production domain is whitelisted in Cashfree, the webhook URL is subscribed and publicly reachable, the OAuth redirect matches the deployed origin, migration `0009` is applied, and a live payment and receipt work. Sandbox testing requires `TEST_` credentials and a separate HTTPS staging deployment/database. The cleanup script `scripts/cleanup-pre-october.ts` writes an exact-record manifest in preview mode and requires that same manifest for transactional execution. It never runs during build or migration.
+Before launch, confirm the production domain is whitelisted in Cashfree, the webhook URL is subscribed and publicly reachable, the OAuth redirect matches the deployed origin, migration `0009` is applied, and a live payment and receipt work. Sandbox testing requires `TEST_` credentials and a separate HTTPS staging deployment/database.
 
 References: [Vercel Node versions](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions), [Vercel cron management](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [Cashfree Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order).
