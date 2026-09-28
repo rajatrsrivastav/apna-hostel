@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { prepareCheckout, watchCheckoutReturn } from "@/lib/checkout-session";
 
 const fetchMock = vi.fn<typeof fetch>();
+const details = { feeDueId: "fee", amount: "100.00" };
 const reply = (body: object, status = 200) =>
   Promise.resolve(new Response(JSON.stringify(body), { status }));
 beforeEach(() => {
@@ -31,7 +32,7 @@ it("automatically retries once a previous order finishes asynchronous terminatio
       reply({ orderId: "new", payment_session_id: "session" }),
     );
   const notice = vi.fn();
-  const prepared = prepareCheckout("fee", new AbortController().signal, notice);
+  const prepared = prepareCheckout(details, new AbortController().signal, notice);
   await vi.advanceTimersByTimeAsync(3000);
   expect(await prepared).toMatchObject({
     orderId: "new",
@@ -52,7 +53,7 @@ it("a delayed bank success resolves without creating another order", async () =>
     )
     .mockImplementationOnce(() => reply({ state: "paid" }));
   const prepared = prepareCheckout(
-    "fee",
+    details,
     new AbortController().signal,
     vi.fn(),
   );
@@ -70,7 +71,7 @@ it("bounds status polling so a slow provider cannot leave the button loading for
       reply({ state: "closing", message: "Still closing" }),
     );
   const prepared = prepareCheckout(
-    "fee",
+    details,
     new AbortController().signal,
     vi.fn(),
   );
@@ -82,13 +83,13 @@ it("bounds status polling so a slow provider cannot leave the button loading for
 it("network failure is retryable without a retained browser lock", async () => {
   fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
   await expect(
-    prepareCheckout("fee", new AbortController().signal, vi.fn()),
+    prepareCheckout(details, new AbortController().signal, vi.fn()),
   ).rejects.toThrow("Failed to fetch");
   fetchMock.mockImplementationOnce(() =>
     reply({ orderId: "same", payment_session_id: "session" }),
   );
   await expect(
-    prepareCheckout("fee", new AbortController().signal, vi.fn()),
+    prepareCheckout(details, new AbortController().signal, vi.fn()),
   ).resolves.toMatchObject({ orderId: "same" });
 });
 
@@ -97,7 +98,7 @@ it("aborts an old polling operation when the page is left or restored", async ()
     reply({ orderId: "old", state: "closing" }, 202),
   );
   const controller = new AbortController();
-  const prepared = prepareCheckout("fee", controller.signal, vi.fn());
+  const prepared = prepareCheckout(details, controller.signal, vi.fn());
   const assertion = expect(prepared).rejects.toMatchObject({
     name: "AbortError",
   });

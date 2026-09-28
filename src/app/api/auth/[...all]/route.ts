@@ -1,11 +1,9 @@
-import { reviewLoginEnabled } from "@/lib/env";
 import { getAuth } from "@/lib/auth";
 import { errorResponse } from "@/lib/errors";
 export const runtime = "nodejs";
 async function handler(request: Request) {
   if (
-    new URL(request.url).pathname === "/api/auth/review-login" &&
-    !reviewLoginEnabled()
+    new URL(request.url).pathname === "/api/auth/review-login"
   )
     return new Response(null, {
       status: 404,

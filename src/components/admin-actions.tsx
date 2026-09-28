@@ -216,7 +216,7 @@ export function EditFee({ fee }: { fee: EditableFee }) {
     </Card>
   );
 }
-export function Reconcile({ id, canRetry = false }: { id: string; canRetry?: boolean }) {
+export function Reconcile({ id, canRetry = false, retryPath = "/student/pay" }: { id: string; canRetry?: boolean; retryPath?: string }) {
   const [retrySafe, setRetrySafe] = useState(false);
   const action = useAction(),
     router = useRouter();
@@ -245,7 +245,7 @@ export function Reconcile({ id, canRetry = false }: { id: string; canRetry?: boo
         <RefreshCw />Check status
       </Button>
       {canRetry && retrySafe && (
-        <Button asChild><Link href="/student/pay">Try payment again</Link></Button>
+        <Button asChild><Link href={retryPath}>Try payment again</Link></Button>
       )}
       <Feedback error={action.error} success={action.success} />
     </div>

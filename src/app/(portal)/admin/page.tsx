@@ -12,12 +12,23 @@ import {
 } from "lucide-react";
 import { requireAdmin } from "@/lib/access";
 import { adminStudents } from "@/lib/data";
+import { getDb } from "@/db";
+import { payments } from "@/db/schema";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { reconcileStudentCashfreePayments } from "@/lib/payment-verification";
+import { Checkout } from "@/components/checkout";
+import { PaymentHistory } from "@/components/payment-history";
+import { cashfreeMode } from "@/lib/cashfree";
 import { money, dateLabel } from "@/lib/money";
 import { Card } from "@/components/ui/card";
 import { AdminStudents } from "@/components/admin-students";
 export default async function AdminDashboard() {
-  await requireAdmin();
+  const admin = await requireAdmin();
+  await reconcileStudentCashfreePayments(admin.id);
   const students = await adminStudents();
+  const ownPayments = await getDb().select().from(payments).where(and(
+    eq(payments.userId, admin.id), isNull(payments.feeDueId),
+  )).orderBy(desc(payments.createdAt));
   const collected = students.reduce((n, s) => n + s.paid, 0),
     outstanding = students.reduce((n, s) => n + s.outstanding, 0);
   const stats = [
@@ -143,6 +154,15 @@ export default async function AdminDashboard() {
         }))}
         compact
       />
+      <Card>
+        <h2 className="text-lg font-semibold">Pay on your account</h2>
+        <p className="mb-4 mt-1 text-sm text-muted-foreground">Enter an amount before opening Cashfree checkout.</p>
+        <div className="max-w-sm"><Checkout dues={[]} compact adminSelf mode={cashfreeMode()} /></div>
+      </Card>
+      <div>
+        <h2 className="mb-4 text-lg font-semibold">Your payment history</h2>
+        <PaymentHistory history={ownPayments} />
+      </div>
     </div>
   );
 }

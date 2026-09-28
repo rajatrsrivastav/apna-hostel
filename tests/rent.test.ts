@@ -18,16 +18,20 @@ beforeAll(async () => {
 });
 afterAll(async () => { await client.close(); });
 
-it("generates one ₹1000 fee per month without duplicating prior dues", async () => {
+it("starts ₹1000 monthly rent on 1 October 2026 and avoids duplicates", async () => {
   await db.insert(schema.users).values({
     id: "rent-student", name: "Rent student", email: "rent@example.test",
     role: "student", approvalStatus: "accepted", monthlyRent: 100_000,
     acceptedAt: new Date("2026-08-10T00:00:00Z"),
   });
-  expect(await generateMonthlyRent("rent-student", new Date("2026-09-24T00:00:00Z"))).toBe(2);
   expect(await generateMonthlyRent("rent-student", new Date("2026-09-24T00:00:00Z"))).toBe(0);
+  expect(await generateMonthlyRent("rent-student", new Date("2026-09-24T00:00:00Z"))).toBe(0);
+  expect(await generateMonthlyRent("rent-student", new Date("2026-09-30T18:29:59Z"))).toBe(0);
+  expect(await generateMonthlyRent("rent-student", new Date("2026-09-30T18:30:00Z"))).toBe(1);
+  expect(await generateMonthlyRent("rent-student", new Date("2026-10-15T00:00:00Z"))).toBe(0);
+  expect(await generateMonthlyRent("rent-student", new Date("2026-11-01T00:00:00Z"))).toBe(1);
   const dues = await db.select().from(schema.feeDues).where(eq(schema.feeDues.userId, "rent-student"));
   expect(dues.map(f => [f.rentMonth, f.amount]).sort()).toEqual([
-    ["2026-08", 100_000], ["2026-09", 100_000],
+    ["2026-10", 100_000], ["2026-11", 100_000],
   ]);
 });

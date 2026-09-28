@@ -131,9 +131,11 @@ export async function reconcileCashfreeCheckout(orderId: string): Promise<{
     .from(payments)
     .where(eq(payments.cashfreeOrderId, orderId));
   if (!record) throw new AppError("Payment not found.", 404);
-  const order = await fetchOrder(orderId);
+  const [order, attempts] = await Promise.all([
+    fetchOrder(orderId),
+    fetchOrderPayments(orderId),
+  ]);
   validateCashfreeOrder(order, record);
-  const attempts = await fetchOrderPayments(orderId);
   const result = (state: CheckoutState, payment = record) => ({
     state,
     payment,

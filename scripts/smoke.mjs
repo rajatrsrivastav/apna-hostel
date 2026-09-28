@@ -34,7 +34,7 @@ try {
     await page.goto(`${baseURL}${path}`);
     await page.waitForURL("**/login");
   }
-  for (const path of ["/contact", "/privacy-policy", "/terms-and-conditions", "/refund-policy", "/review-login"]) {
+  for (const path of ["/contact", "/privacy-policy", "/terms-and-conditions", "/refund-policy"]) {
     const response = await page.goto(`${baseURL}${path}`);
     if (response.status() !== 200) throw new Error(`Public page failed: ${path}`);
     await expect(page.getByText("Operated by PARUL PLASTIC", { exact: true })).toBeVisible();

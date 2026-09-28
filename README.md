@@ -1,6 +1,6 @@
 # Apna Hostel — PG / hostel fee portal
 
-A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, shadcn-style Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, and Cashfree. The lockfile pins the installed stable versions. The optional Cashfree reviewer account is isolated from real student identities. Simulated payment endpoints are removed; provider mocks exist only in tests.
+A mobile-first hostel fee portal for ITI and Diploma students. Next.js 16 App Router, TypeScript, Tailwind CSS 4, Radix UI components, Better Auth with Google, Drizzle, Neon PostgreSQL, and Cashfree. The lockfile pins installed versions. Simulated payment endpoints are removed; provider mocks exist only in tests.
 
 ## Quick local setup
 
@@ -50,11 +50,11 @@ Pending/rejected students go to `/approval`, which includes Logout. Accepted stu
 
 ### 4. Cashfree production configuration
 
-1. Configure server-only `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` with the existing production credentials. Set `BETTER_AUTH_URL` to the public HTTPS origin, without a path. The API and browser checkout always use production; there is no sandbox fallback or public credential variable. API version: `2026-01-01`.
+1. Configure server-only `CASHFREE_APP_ID` and `CASHFREE_SECRET_KEY` with production credentials for the live deployment. A separate HTTPS staging deployment with `TEST_` credentials automatically uses Cashfree sandbox in both the backend and browser. Set `BETTER_AUTH_URL` to that deployment's HTTPS origin, without a path. No public credential variable is needed. API version: `2026-01-01`.
 2. Whitelist the production website domain in the [Cashfree dashboard](https://merchant.cashfree.com/). Set the public webhook endpoint to `https://YOUR-DOMAIN/api/cashfree/webhook` and subscribe to `PAYMENT_SUCCESS_WEBHOOK`, `PAYMENT_FAILED_WEBHOOK`, and `PAYMENT_USER_DROPPED_WEBHOOK`. Use the dashboard’s **Test Webhook** after deployment. The handler accepts signed connectivity probes and sample orders without changing rent records.
-3. Orders are created server-side with amounts from the fee ledger, a durable local order ID, and a stable `x-idempotency-key`. Cashfree receives `return_url` pointing to `/student/history?order_id={order_id}` and `notify_url` pointing to `/api/cashfree/webhook`. Only `payment_session_id` is passed to the production checkout SDK. An interrupted create request can safely reuse the same reservation; active orders are reused until Cashfree confirms closure.
+3. Orders are created server-side with validated amounts against the selected fee balance, or on the admin's own account, a durable local order ID, and a stable `x-idempotency-key`. Cashfree returns students to `/student/history?order_id={order_id}` and admins to `/admin?order_id={order_id}`; `notify_url` is `/api/cashfree/webhook`. Only `payment_session_id` is passed to the production checkout SDK. An interrupted create request can safely reuse the same reservation; active orders are reused until Cashfree confirms closure.
 4. Signatures use base64 HMAC-SHA256 over the timestamp header followed by the exact request bytes, using `CASHFREE_SECRET_KEY`. JSON is parsed only after constant-time signature verification. No short timestamp expiry is imposed on Cashfree retries; replay safety comes from row locks and unique payment IDs. Valid handled, duplicate, unrelated, and probe events return 200. Provider/database failures return 503 so Cashfree retries rather than losing a payment.
-5. Webhooks, return-page verification, and “Check payment” all require authoritative `PAID` order state plus a matching `SUCCESS` payment with the correct ID, INR currency, and amount before crediting rent. Pending payments are not failed merely because the browser returned or a local timer elapsed. Repeated or delayed events cannot reverse a capture or double-credit rent; excess captures are held for office refund review. The simulated `/api/payments/review-pay` route is removed, while reviewer sign-in remains unchanged.
+5. Webhooks, return-page verification, and “Check payment” all require authoritative `PAID` order state plus a matching `SUCCESS` payment with the correct ID, INR currency, and amount before crediting rent. Pending payments are not failed merely because the browser returned or a local timer elapsed. Repeated or delayed events cannot reverse a capture or double-credit rent; excess captures are held for office refund review. The obsolete reviewer sign-in and simulated payment endpoint are removed.
 6. Run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` before release. Automated payment tests use mocked provider responses and an isolated in-memory database, never real charges. After deploying, run Cashfree’s signed dashboard test, then verify a real authorized payment and its receipt, including duplicate webhook delivery. Confirm the hosting platform allows anonymous POST requests to the webhook (no deployment password/challenge) and that the configured HTTPS origin matches the deployed domain. Never paste credentials or webhook signatures into logs.
 
 References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/redirect), [Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order), [Webhook signatures](https://www.cashfree.com/docs/payments/online/webhooks/overview), [Idempotency](https://www.cashfree.com/docs/payments/online/webhooks/webhook-indempotency).
@@ -64,23 +64,23 @@ References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/
 
 - Continue with Google → Approval Pending only.
 - Admin accepts → complete full name, phone, ITI/Diploma, trade, year/semester.
-- Pending/rejected accounts cannot access dashboard pages, receipts, screenshots, or payment/profile APIs.
+- Pending/rejected accounts cannot access dashboard pages, receipts, or payment/profile APIs.
 - My fee → Current Month Rent, Previous Due, Total Due, status, and **Pay Now / फीस भरें**.
-- Pay online through Cashfree, or submit amount, date, and a screenshot for a manual UPI payment.
-- Payments → history, status, private screenshot and a printable receipt once verified.
+- Enter a full or partial amount (minimum ₹1) against an unpaid fee, then pay online through Cashfree.
+- Payments → history, status and a printable receipt once verified.
 - Help → office call button when `HOSTEL_SUPPORT_PHONE` is set.
 
-Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) for each accepted month. Unpaid monthly dues remain on the account and sum into Previous Due; checkout lets the student select a month if more than one is due. Manual submissions allow partial payments; the outstanding balance updates only after approval.
+Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) from 1 October 2026 onward. The cutoff is centralized in `src/lib/fee-policy.ts`; no new environment variable is needed. Earlier dues are not payable. Unpaid monthly dues remain on the account and sum into Previous Due; checkout starts with the oldest unpaid fee and lets the student select another month. The outstanding balance updates only after Cashfree verification.
 
 ## Admin workflow and accounting
 
-`/admin` shows totals and an accepted-student overview. `/admin/pending` lets admins accept/reject Google accounts using the name and email supplied by Google. Rejected accounts remain available there for reconsideration. `/admin/students` searches by name/phone and filters course/status. Open a student to add a fee, update its amount/date, or inspect the full payment history. `/admin/verification` shows manual payment submissions. Check the screenshot **against your actual bank/UPI account**, then approve or reject; rejected payments include a reason visible to the student.
+`/admin` shows totals, an accepted-student overview, and a Cashfree custom-amount payment on the admin's own account. `/admin/pending` lets admins accept/reject Google accounts using the name and email supplied by Google. `/admin/students` searches by name/phone and filters course/status. Open a student to add a fee, update its amount/date, or inspect dues, balances, Cashfree references, and payment history.
 
 - All money is integer paise. Verified payments alone count as collected.
 - Outstanding is the sum of `max(0, assessed fee − verified payments − admin adjustment)` per fee.
 - **Record payment / Mark paid** records actual money collected by an admin as a verified `admin_manual` payment. The default amount clears that fee, or enter a partial amount. Admins can edit these collections later, with a reason, payment date and revision check. Enter 0 to void a mistaken collection; its audit history remains. Duplicate retries reuse an idempotency key.
-- Cashfree and screenshot payments remain protected from collection edits. **Waive remaining fee** / **Undo waiver** are separate concession actions and never inflate money collected. Monthly rent defaults to ₹1,000 per student. The Monthly fee field changes future months; Edit fee changes an existing month while preserving payment and waiver checks.
-- Fee changes keep the previous values, reason, actor, and timestamp in the fee audit trail. Manual review stores the reviewer, time, and reason.
+- Cashfree payments remain protected from collection edits. **Waive remaining fee** / **Undo waiver** are separate concession actions and never inflate money collected. Monthly rent defaults to ₹1,000 per student. The Monthly fee field changes future months; Edit fee changes an existing month while preserving payment and waiver checks.
+- Fee changes keep the previous values, reason, actor, and timestamp in the fee audit trail.
 - Pending payments block fee changes. Row locks serialize settlement, reviews, and fee edits; a unique partial index allows only one pending payment per fee. Fee revision checks reject stale edits.
 - A captured payment arriving after another settlement/adjustment is still recorded as money received. Resolve any excess with the student; do not discard provider events. Collections may exceed assessed fees in such an exceptional case.
 - Accepted accounts automatically get their acceptance-month rent, even before profile completion. Admin financial overview lists accepted students; historical records for rejected accounts remain accessible to admins through Pending Students → student details.
@@ -92,7 +92,7 @@ For the earlier admission migration (0001), apply migrations with `npm run db:mi
 - Admission state is separate from role: `pending`, `accepted`, `rejected`. Signup cannot set it. Checks query the database on every protected request; rejecting a previously accepted account immediately blocks subsequent requests without waiting for its session to expire. Provider webhooks still settle real captured payments after access is revoked.
 - A full monthly fee (default ₹1,000) is due for the month of acceptance, without prorating; no rent is generated for months before acceptance. Dates use **Asia/Kolkata**, and each rent is due on the last day of its month.
 - The `(user_id, rent_month)` unique index plus `ON CONFLICT DO NOTHING` makes acceptance, repeated cron runs, dashboard loads and concurrent retries idempotent.
-- A daily Vercel cron at `00:00 UTC` calls `/api/cron/rent`. Set a random **`CRON_SECRET`** in Vercel. Requests must supply `Authorization: Bearer <CRON_SECRET>`; there is no unauthenticated generation endpoint. See [Vercel cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+- A daily Vercel cron at `18:30 UTC` (midnight in India) calls `/api/cron/rent`. Set a random **`CRON_SECRET`** in Vercel. Requests must supply `Authorization: Bearer <CRON_SECRET>`; there is no unauthenticated generation endpoint. See [Vercel cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
 - Dashboard reads and student-detail reads also catch up missed months. No monthly maintenance or student login is required for scheduled generation. Locally, Vercel cron does not run; loading a dashboard performs catch-up, or call the cron endpoint with its authorization header.
 - January unpaid ₹1,000 + February ₹1,000 + March ₹1,000 = ₹3,000. A ₹600 admin collection against January leaves Previous Due ₹1,400 and Total Due ₹2,400 in March.
 - Rejecting an accepted student ends that acceptance interval after generating any missing dues through the rejection month. Readmission starts a new interval in the readmission month, without billing months spent rejected. Existing monthly rows are never duplicated and old debt is not deleted.
@@ -106,7 +106,7 @@ For the earlier admission migration (0001), apply migrations with `npm run db:mi
 4. Configure your stable domain. Add its exact Google callback URI and Cashfree webhook URL as described above. Avoid ephemeral preview URLs for OAuth; use a stable staging domain with its own configuration.
 5. Apply `npm run db:migrate` against the production database from a trusted terminal/CI before opening the deployment. Migrations are not executed at build or on request.
 6. Deploy. Sign in with the intended admin Google account, with `ADMIN_EMAIL` configured on the server.
-7. Complete one test-mode online payment and verify approval and receipts, then configure live mode for production. Check webhook deliveries in Cashfree and function logs in Vercel.
+7. On a separate HTTPS staging deployment with `TEST_` keys and a separate database, make a ₹1 sandbox payment and a ₹500 partial payment, then verify receipts, remaining dues and duplicate webhook handling. Configure production keys and the live webhook URL separately. Check webhook deliveries in Cashfree and function logs in Vercel.
 8. Configure database backups/restore in Neon and alerting for function failures and failed webhook deliveries. Place functions near the Neon database. The server uses a small pooled connection count for serverless deployment.
 
 The application sends no-store responses for authenticated API data, checks same-origin mutation requests, validates inputs with Zod, rate limits authentication and application mutations in PostgreSQL, and uses privacy-conscious structured error logging. Unexpected API errors return a short incident reference; raw credentials and payment bodies are not logged by application code.
@@ -120,7 +120,7 @@ npm test
 npm run build
 ```
 
-Tests execute the checked-in migrations in PGlite (real PostgreSQL semantics in an isolated test engine), then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes Better Auth sessions and roles, reviewer record preservation, migrations, production-origin validation, email failures and HTML escaping, Cashfree signatures, duplicate and out-of-order events, payment ownership, amount mismatches, checkout retries and expiry. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. No real OAuth account, Neon database, or Cashfree credentials are bundled; successful local checks do not certify your external account configuration. Complete the staging checklist above before collecting live fees.
+Tests execute the checked-in migrations in PGlite, then exercise ledger and API code with provider responses and identity mocked **only in tests**. Coverage includes Better Auth sessions and roles, the October cutoff, partial and admin payments, Cashfree signatures, duplicate and out-of-order events, payment ownership, amount mismatches, checkout retries and expiry. Browser smoke checks cover the public login screen, 320px responsiveness and authenticated-route redirects. Automated checks do not replace Cashfree sandbox and deployed webhook testing.
 
 ## Useful paths
 

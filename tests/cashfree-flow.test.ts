@@ -40,6 +40,10 @@ const state = vi.hoisted(() => ({
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/access", () => ({ requireUser: async () => state.user }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => undefined }));
+vi.mock("@/lib/fee-policy", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/fee-policy")>(),
+  collectionStarted: () => true,
+}));
 vi.mock("@/lib/notifications", () => ({
   notifyPaymentSuccess: async () => undefined,
   notifyPaymentIncomplete: async () => undefined,
@@ -147,7 +151,7 @@ async function student() {
     userId: id,
     label: "Rent",
     amount: 10000,
-    dueDate: "2026-09-30",
+    dueDate: "2026-10-31",
   });
   state.user = { id, email: `${id}@example.test`, role: "student" };
   return { id, feeId };
@@ -162,8 +166,8 @@ function request(path: string, body: object) {
     body: JSON.stringify(body),
   });
 }
-async function order(feeDueId: string) {
-  const response = await createPaymentOrder(request("order", { feeDueId }));
+async function order(feeDueId: string, amount = "100.00") {
+  const response = await createPaymentOrder(request("order", { feeDueId, amount }));
   return {
     response,
     body: (await response.json()) as {
@@ -181,18 +185,59 @@ async function record(orderId: string) {
       .where(eq(schema.payments.cashfreeOrderId, orderId))
   )[0];
 }
-function attempt(orderId: string, status: string) {
+function attempt(orderId: string, status: string, amount = 10000) {
   state.attempts.set(orderId, [
     {
       id: `pay-${orderId}`,
       order_id: orderId,
-      amount: 10000,
+      amount,
       currency: "INR",
       status,
       time: new Date().toISOString(),
     },
   ]);
 }
+
+it("rejects a browser amount above the server fee balance", async () => {
+  const { feeId } = await student();
+  const response = await order(feeId, "101.00");
+  expect(response.response.status).toBe(409);
+  expect(state.creates).toBe(0);
+});
+
+it("credits two ₹50 partial payments once each against one ₹100 due", async () => {
+  const { feeId } = await student();
+  const first = (await order(feeId, "50.00")).body.orderId;
+  attempt(first, "SUCCESS", 5000);
+  state.orders.get(first)!.order_status = "PAID";
+  await verifyCashfreePayment(first);
+  await verifyCashfreePayment(first);
+  const second = (await order(feeId, "50.00")).body.orderId;
+  expect(second).not.toBe(first);
+  attempt(second, "SUCCESS", 5000);
+  state.orders.get(second)!.order_status = "PAID";
+  await verifyCashfreePayment(second);
+  const paid = await db.select().from(schema.payments).where(eq(schema.payments.feeDueId, feeId));
+  expect(paid.filter((p) => p.status === "verified").map((p) => p.amount).sort()).toEqual([5000, 5000]);
+  expect((await order(feeId, "1.00")).response.status).not.toBe(200);
+});
+
+it("records an admin custom payment on the admin account without rent credit", async () => {
+  const id = `cashfree-admin-${++serial}`;
+  await db.insert(schema.users).values({ id, name: "Admin", email: `${id}@example.test`, role: "admin" });
+  state.user = { id, email: `${id}@example.test`, name: "Admin", role: "admin" };
+  const response = await createPaymentOrder(request("order", { amount: "1.00", phone: "9876543210" }));
+  expect(response.status).toBe(200);
+  const body = await response.json() as { orderId: string };
+  const payment = await record(body.orderId);
+  expect(payment.feeDueId).toBeNull();
+  expect(payment.amount).toBe(100);
+  attempt(body.orderId, "SUCCESS", 100);
+  state.orders.get(body.orderId)!.order_status = "PAID";
+  await verifyCashfreePayment(body.orderId);
+  await verifyCashfreePayment(body.orderId);
+  expect((await record(body.orderId)).status).toBe("verified");
+});
 
 it("reuses one order for double clicks and a lost response", async () => {
   const { feeId } = await student();

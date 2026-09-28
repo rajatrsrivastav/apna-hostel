@@ -17,14 +17,15 @@ describe("Next.js Content-Security-Policy headers", () => {
 
     const cspValue = cspHeader?.value ?? "";
 
-    expect(cspValue).toContain(
-      "form-action 'self' https://api.cashfree.com https://payments.cashfree.com;",
-    );
-    expect(cspValue).toContain(
-      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://payments.cashfree.com;",
-    );
-    expect(cspValue).toContain(
-      "connect-src 'self' https://api.cashfree.com https://payments.cashfree.com;",
-    );
+    const directives = Object.fromEntries(cspValue.split(";").map((entry) => {
+      const [name, ...values] = entry.trim().split(/\s+/);
+      return [name, values];
+    }));
+    for (const directive of ["form-action", "frame-src", "connect-src"]) {
+      expect(directives[directive]).toContain("https://api.cashfree.com");
+      expect(directives[directive]).toContain("https://sandbox.cashfree.com");
+      expect(directives[directive]).toContain("https://payments-test.cashfree.com");
+    }
+    expect(directives["frame-src"]).toContain("https://sdk.cashfree.com");
   });
 });

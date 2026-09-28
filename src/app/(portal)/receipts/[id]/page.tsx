@@ -22,7 +22,7 @@ export default async function Receipt({
   const [row] = await getDb()
     .select({ payment: payments, fee: feeDues, name: users.name })
     .from(payments)
-    .innerJoin(feeDues, eq(payments.feeDueId, feeDues.id))
+    .leftJoin(feeDues, eq(payments.feeDueId, feeDues.id))
     .innerJoin(users, eq(users.id, payments.userId))
     .where(eq(payments.id, id));
   if (!row || (row.payment.userId !== user.id && user.role !== "admin"))
@@ -33,7 +33,7 @@ export default async function Receipt({
       <Link
         href={
           user.role === "admin"
-            ? `/admin/students/${p.userId}`
+            ? p.feeDueId ? `/admin/students/${p.userId}` : "/admin"
             : "/student/history"
         }
         className="no-print flex min-h-11 items-center gap-2 text-sm text-muted-foreground"
@@ -62,11 +62,12 @@ export default async function Receipt({
         </div>
         <dl className="my-7 space-y-4 border-y border-dashed border-border py-6 text-sm">
           {[
-            ["Student", name],
-            ["Fee", fee.label],
+            [p.feeDueId ? "Student" : "Account", name],
+            ["Fee", fee?.label ?? "Admin account payment"],
             ["Method", paymentMethodLabel(p.method)],
             ["Date", dateLabel(p.paymentDate || p.createdAt)],
             ["Reference", p.id],
+            ...(p.cashfreeOrderId ? [["Cashfree order", p.cashfreeOrderId]] : []),
             ...(p.cashfreePaymentId
               ? [["Payment ID", p.cashfreePaymentId]]
               : []),
@@ -90,7 +91,7 @@ export default async function Receipt({
         )}
         {p.method === "cashfree" && p.status !== "verified" && (
           <div className="no-print mb-5">
-            <Reconcile id={p.id} canRetry={user.role !== "admin"} />
+            <Reconcile id={p.id} canRetry={p.userId === user.id} retryPath={p.feeDueId ? "/student/pay" : "/admin"} />
           </div>
         )}
         {p.status === "verified" && (

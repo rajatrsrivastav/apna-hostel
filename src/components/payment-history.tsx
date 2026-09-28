@@ -36,7 +36,7 @@ export function PaymentHistory({
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">
-              {labels[p.feeDueId] || "Hostel fee"}
+              {(p.feeDueId && labels[p.feeDueId]) || (p.feeDueId ? "Hostel fee" : "Admin payment")}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {dateLabel(p.paymentDate || p.createdAt)} ·{" "}

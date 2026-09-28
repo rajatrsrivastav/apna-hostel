@@ -2,11 +2,11 @@ import { rateLimit } from "@/lib/rate-limit";
 import { and, desc, eq, ne, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { payments, studentProfiles } from "@/db/schema";
+import { payments, studentProfiles, users } from "@/db/schema";
 import { requireUser } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { jsonBody, mutation } from "@/lib/http";
-import { idSchema } from "@/lib/validation";
+import { amountSchema, idSchema } from "@/lib/validation";
 import { feeBalance, lockFee } from "@/lib/ledger";
 import {
   cashfreeCallbackUrls,
@@ -20,29 +20,37 @@ import {
   ORDER_LIFETIME_MS,
   validateCashfreeOrder,
 } from "@/lib/payment-verification";
+import { collectionStarted, isPostLaunchFee } from "@/lib/fee-policy";
 
 export const POST = mutation(async (req) => {
   const user = await requireUser();
   await rateLimit(user.id, "payments/order", 20);
-  const { feeDueId } = z
-    .object({ feeDueId: idSchema })
-    .parse(await jsonBody(req));
-  const orderMeta = cashfreeCallbackUrls();
-  const [profile] = await getDb()
+  const body = z.object({
+    feeDueId: idSchema.optional(),
+    amount: amountSchema,
+    phone: z.string().optional(),
+  }).parse(await jsonBody(req));
+  const adminSelf = user.role === "admin";
+  if (adminSelf === Boolean(body.feeDueId))
+    throw new AppError("Choose a valid payment account.");
+  const orderMeta = cashfreeCallbackUrls(adminSelf ? "admin" : "student");
+  const [profile] = adminSelf ? [] : await getDb()
     .select()
     .from(studentProfiles)
     .where(eq(studentProfiles.userId, user.id));
-  if (!profile) throw new AppError("Complete your profile first.");
-  const phone = profile.phone.replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "");
+  if (!adminSelf && !profile) throw new AppError("Complete your profile first.");
+  const phone = (adminSelf ? body.phone ?? "" : profile!.phone).replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "");
   if (!/^[6-9]\d{9}$/.test(phone))
     throw new AppError(
-      "Update your profile with a valid mobile number before paying.",
+      adminSelf ? "Enter a valid mobile number before paying." : "Update your profile with a valid mobile number before paying.",
     );
 
   // Each retry reserves under the fee lock. Cashfree idempotency also protects
   // two requests that both observe a reservation before Create Order returns.
   for (let retry = 0; retry < 3; retry++) {
-    const reservation = await reservePayment(user.id, feeDueId);
+    const reservation = adminSelf
+      ? await reserveAdminPayment(user.id, body.amount)
+      : await reservePayment(user.id, body.feeDueId!, body.amount);
     const { record, existing } = reservation;
     const orderId = record.cashfreeOrderId!;
     const expiresAt = new Date(
@@ -95,7 +103,7 @@ export const POST = mutation(async (req) => {
               customer_id: user.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50),
               customer_phone: phone,
               customer_email: user.email,
-              customer_name: profile.fullName,
+              customer_name: profile?.fullName ?? user.name,
             },
             order_expiry_time: expiresAt,
             order_meta: orderMeta,
@@ -119,9 +127,9 @@ export const POST = mutation(async (req) => {
         "Cashfree checkout is unavailable. Please try again shortly.",
         503,
       );
-    if (record.amount !== reservation.balance)
+    if (reservation.balance !== null && record.amount > reservation.balance)
       throw new AppError(
-        "Your fee balance changed. Wait for the current checkout to expire before paying again.",
+        "Your fee balance changed. Please check payment status before trying again.",
         409,
       );
     // Reopening the SAME active order cannot create a second payable order.
@@ -137,12 +145,16 @@ export const POST = mutation(async (req) => {
   throw new AppError("Checkout status changed. Please try again.", 503);
 });
 
-async function reservePayment(userId: string, feeDueId: string) {
+async function reservePayment(userId: string, feeDueId: string, requestedAmount: number) {
   return getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, feeDueId);
     if (fee.userId !== userId) throw new AppError("Fee not found.", 404);
+    if (!collectionStarted() || !isPostLaunchFee(fee))
+      throw new AppError("Fee collection starts on 1 October 2026.", 409);
     const amount = await feeBalance(tx, fee);
     if (!amount) throw new AppError("This fee is already paid.");
+    if (requestedAmount > amount)
+      throw new AppError("Amount exceeds the remaining fee balance.", 409);
     const [pending] = await tx
       .select()
       .from(payments)
@@ -180,12 +192,40 @@ async function reservePayment(userId: string, feeDueId: string) {
         id,
         userId,
         feeDueId: fee.id,
-        amount,
+        amount: requestedAmount,
         method: "cashfree",
         attemptStatus: "checkout_started",
         cashfreeOrderId: `apna_${id.replace(/-/g, "")}`,
       })
       .returning();
     return { record, existing: false, balance: amount };
+  });
+}
+
+async function reserveAdminPayment(userId: string, requestedAmount: number) {
+  return getDb().transaction(async (tx) => {
+    const [admin] = await tx.select({ role: users.role }).from(users)
+      .where(eq(users.id, userId)).for("update");
+    if (admin?.role !== "admin") throw new AppError("Admin access required.", 403);
+    const [pending] = await tx.select().from(payments).where(and(
+      eq(payments.userId, userId), isNull(payments.feeDueId),
+      eq(payments.method, "cashfree"), eq(payments.status, "pending"),
+    ));
+    const [previous] = await tx.select().from(payments).where(and(
+      eq(payments.userId, userId), isNull(payments.feeDueId),
+      eq(payments.method, "cashfree"),
+      or(isNull(payments.attemptStatus), and(
+        ne(payments.attemptStatus, "paid"), ne(payments.attemptStatus, "abandoned"),
+      )),
+    )).orderBy(desc(payments.createdAt)).limit(1);
+    const reusable = pending ?? previous;
+    if (reusable && reusable.attemptStatus !== "abandoned")
+      return { record: reusable, existing: true, balance: null };
+    const id = crypto.randomUUID();
+    const [record] = await tx.insert(payments).values({
+      id, userId, feeDueId: null, amount: requestedAmount, method: "cashfree",
+      attemptStatus: "checkout_started", cashfreeOrderId: `apna_${id.replace(/-/g, "")}`,
+    }).returning();
+    return { record, existing: false, balance: null };
   });
 }

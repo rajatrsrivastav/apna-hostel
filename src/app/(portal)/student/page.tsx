@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { PaymentHistory } from "@/components/payment-history";
 import { Checkout } from "@/components/checkout";
+import { cashfreeMode } from "@/lib/cashfree";
 export default async function StudentDashboard() {
   const { user, profile } = await studentPage();
   const data = await studentData(user.id);
@@ -79,6 +80,7 @@ export default async function StudentDashboard() {
           <p className="mt-2 break-words text-5xl font-semibold tracking-[-0.05em] sm:text-6xl">
             {money(data.totalDue)}
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">Already paid {money(data.totalPaid)} · Remaining {money(data.totalDue)}</p>
           {next ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
               <CalendarDays className="size-4" />
@@ -95,6 +97,7 @@ export default async function StudentDashboard() {
             {data.totalDue > 0 ? (
               <Checkout
                 compact
+                mode={cashfreeMode()}
                 dues={next ? [{
                   id: next.id,
                   label: next.label,
@@ -124,6 +127,18 @@ export default async function StudentDashboard() {
           </div>
         </div>
       )}
+      <div className="mt-8">
+        <h2 className="mb-3 text-lg font-semibold tracking-tight">Monthly and unpaid dues</h2>
+        <div className="space-y-2">
+          {data.dues.map((fee) => (
+            <div key={fee.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-4 text-sm">
+              <div><p className="font-semibold">{fee.label}</p><p className="text-xs text-muted-foreground">Paid {money(fee.paid)} · Due {dateLabel(fee.dueDate)}</p></div>
+              <span className="font-semibold">{money(fee.outstanding)} remaining</span>
+            </div>
+          ))}
+          {!data.dues.length && <p className="text-sm text-muted-foreground">No monthly dues yet.</p>}
+        </div>
+      </div>
       <div className="mb-5 mt-9 flex items-center justify-between">
         <h2 className="text-lg font-semibold tracking-tight">
           Recent payments

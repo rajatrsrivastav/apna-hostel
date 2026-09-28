@@ -14,17 +14,11 @@ export function authEnv() {
     throw new Error("Authentication environment is incomplete or invalid.");
   return { ...parsed.data, BETTER_AUTH_URL: publicOrigin() };
 }
-// Reserved test identity, never a credential or an existing student account.
-export const REVIEW_USER_ID = "cashfree-review-test-student";
-export function reviewLoginEnabled() {
-  return process.env.ENABLE_CASHFREE_REVIEW_LOGIN === "true";
-}
 export function configuredRole(user: {
   id?: string;
   email: string;
   emailVerified: boolean;
 }): "admin" | "student" {
-  if (user.id === REVIEW_USER_ID) return "student";
   const emails = (process.env.ADMIN_EMAILS ?? process.env.ADMIN_EMAIL ?? "")
     .split(",")
     .map((email) => email.trim().toLowerCase())

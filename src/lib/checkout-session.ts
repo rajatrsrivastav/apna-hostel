@@ -5,6 +5,7 @@ export type CheckoutResponse = {
   alreadyPaid?: boolean;
   state?: "processing" | "closing";
   message?: string;
+  amount?: number;
 };
 
 async function post<T>(
@@ -42,12 +43,12 @@ function delay(signal: AbortSignal) {
 }
 
 export async function prepareCheckout(
-  feeDueId: string,
+  details: { feeDueId?: string; amount: string; phone?: string },
   signal: AbortSignal,
   onWaiting: (message: string) => void,
 ): Promise<CheckoutResponse> {
   const create = () =>
-    post<CheckoutResponse>("/api/payments/order", { feeDueId }, signal);
+    post<CheckoutResponse>("/api/payments/order", details, signal);
   let result = await create();
   // Poll verification, not order creation, while a legacy cancellation finishes
   // or a real bank payment is pending. Never leave the button locked forever.

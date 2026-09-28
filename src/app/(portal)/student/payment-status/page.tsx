@@ -1,18 +1,12 @@
-import { Suspense } from "react";
-import { PaymentStatusClient } from "@/components/payment-status-client";
+import { redirect } from "next/navigation";
 
-export default function PaymentStatusPage() {
-  return (
-    <div className="mx-auto max-w-lg pt-8">
-      <Suspense
-        fallback={
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            Loading…
-          </div>
-        }
-      >
-        <PaymentStatusClient />
-      </Suspense>
-    </div>
-  );
+export default async function PaymentStatusPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ order_id?: string }>;
+}) {
+  const { order_id } = await searchParams;
+  redirect(order_id && order_id.length <= 100
+    ? `/student/history?order_id=${encodeURIComponent(order_id)}`
+    : "/student/history");
 }

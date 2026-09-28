@@ -184,9 +184,8 @@ export const payments = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id),
-    feeDueId: text("fee_due_id")
-      .notNull()
-      .references(() => feeDues.id),
+    // Null only for an admin's own Cashfree payment, which is not rent credit.
+    feeDueId: text("fee_due_id").references(() => feeDues.id),
     amount: integer("amount").notNull(),
     method: methodEnum("method").notNull(),
     status: statusEnum("status").default("pending").notNull(),
@@ -230,6 +229,9 @@ export const payments = pgTable(
     uniqueIndex("one_pending_payment_per_fee")
       .on(t.feeDueId)
       .where(sql`${t.status} = 'pending'`),
+    uniqueIndex("one_pending_admin_payment_per_user")
+      .on(t.userId)
+      .where(sql`${t.feeDueId} is null and ${t.status} = 'pending' and ${t.method} = 'cashfree'`),
   ],
 );
 
@@ -257,4 +259,3 @@ export const notificationLogs = pgTable(
     index("notification_type_sent_idx").on(t.type, t.sentAt),
   ],
 );
-

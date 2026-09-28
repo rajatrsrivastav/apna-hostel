@@ -1,11 +1,12 @@
 import "server-only";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { feeDues, payments } from "@/db/schema";
+import { feeDues, payments, users } from "@/db/schema";
 import { AppError } from "./errors";
 import { balance } from "./money";
 import type { ProviderPayment } from "./cashfree";
 import { notifyPaymentSuccess, notifyPaymentIncomplete } from "./notifications";
+import { todayIndia } from "./validation";
 export type Transaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
@@ -40,7 +41,13 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     throw new AppError("Order not yet recorded. Retry notification.", 503);
   let changed = false;
   const result = await db.transaction(async (tx) => {
-    const fee = await lockFee(tx, record.feeDueId);
+    const fee = record.feeDueId ? await lockFee(tx, record.feeDueId) : null;
+    if (!fee) {
+      const [owner] = await tx.select({ role: users.role }).from(users)
+        .where(eq(users.id, record.userId)).for("update");
+      if (owner?.role !== "admin")
+        throw new AppError("Payment account is invalid.", 409);
+    }
     const [payment] = await tx
       .select()
       .from(payments)
@@ -95,7 +102,9 @@ export async function settleProviderPayment(provider: ProviderPayment) {
           .from(payments)
           .where(
             and(
-              eq(payments.feeDueId, payment.feeDueId),
+              payment.feeDueId
+                ? eq(payments.feeDueId, payment.feeDueId)
+                : and(eq(payments.userId, payment.userId), isNull(payments.feeDueId)),
               eq(payments.status, "pending"),
               ne(payments.id, payment.id),
             ),
@@ -113,7 +122,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
       return payment;
     }
     // Record real excess captures for office refund review, without crediting rent twice.
-    const remaining = await feeBalance(tx, fee);
+    const remaining = fee ? await feeBalance(tx, fee) : payment.amount;
     const excess = payment.amount > remaining;
     changed = true;
     const [updated] = await tx
@@ -126,6 +135,8 @@ export async function settleProviderPayment(provider: ProviderPayment) {
           ? "Payment captured after the fee balance changed. Office refund review required; no duplicate rent credit applied."
           : null,
         reviewedAt: new Date(),
+        paymentDate: todayIndia(provider.time && !Number.isNaN(Date.parse(provider.time))
+          ? new Date(provider.time) : new Date()),
       })
       .where(eq(payments.id, payment.id))
       .returning();
@@ -138,7 +149,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     result.attemptStatus === "paid"
   ) {
     try {
-      await notifyPaymentSuccess(result.id);
+      if (result.feeDueId) await notifyPaymentSuccess(result.id);
     } catch (err) {
       console.error(
         "[Notification] notifyPaymentSuccess failed:",
@@ -151,7 +162,7 @@ export async function settleProviderPayment(provider: ProviderPayment) {
     result.attemptStatus === "failed"
   ) {
     try {
-      await notifyPaymentIncomplete(result.id, "failed");
+      if (result.feeDueId) await notifyPaymentIncomplete(result.id, "failed");
     } catch (err) {
       console.error(
         "[Notification] notifyPaymentIncomplete failed:",

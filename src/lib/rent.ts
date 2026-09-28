@@ -2,6 +2,8 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import type { Transaction } from "./ledger";
+import { FEE_COLLECTION_START_DATE } from "./fee-policy";
+export { FEE_COLLECTION_START_DATE } from "./fee-policy";
 export function indiaMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -17,18 +19,24 @@ export async function generateMonthlyRentWithIds(
   now = new Date(),
   executor: Pick<Transaction, "execute"> = getDb(),
 ) {
+  const currentMonth = indiaMonth(now);
+  if (currentMonth < FEE_COLLECTION_START_DATE.slice(0, 7))
+    return { count: 0, createdIds: [] as string[] };
   const result = await executor.execute(sql`
     WITH eligible AS MATERIALIZED (
       SELECT id, accepted_at, monthly_rent FROM users
       WHERE role = 'student' AND approval_status = 'accepted' AND accepted_at IS NOT NULL
       ${userId ? sql`AND id = ${userId}` : sql``}
+      AND NOT EXISTS (
+        SELECT 1 FROM fee_dues f WHERE f.user_id = users.id AND f.rent_month = ${currentMonth}
+      )
       ORDER BY id FOR UPDATE
     )
     INSERT INTO fee_dues (id, user_id, label, amount, due_date, rent_month)
     SELECT gen_random_uuid()::text, u.id, 'Rent · ' || to_char(m.month, 'Mon YYYY'), u.monthly_rent,
       to_char(m.month + interval '1 month - 1 day', 'YYYY-MM-DD'), to_char(m.month, 'YYYY-MM')
     FROM eligible u CROSS JOIN LATERAL generate_series(
-      date_trunc('month', u.accepted_at AT TIME ZONE 'Asia/Kolkata'),
+      greatest(date_trunc('month', u.accepted_at AT TIME ZONE 'Asia/Kolkata'), ${FEE_COLLECTION_START_DATE}::date::timestamp),
       date_trunc('month', ${now.toISOString()}::timestamptz AT TIME ZONE 'Asia/Kolkata'), interval '1 month'
     ) m(month)
     ON CONFLICT (user_id, rent_month) DO NOTHING RETURNING id`);

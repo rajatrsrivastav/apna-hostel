@@ -64,6 +64,13 @@
       "when": 1789740000000,
       "tag": "0008_cashfree_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790553600000,
+      "tag": "0009_admin_self_payment",
+      "breakpoints": true
     }
   ]
 }

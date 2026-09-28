@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,11 +25,20 @@ export type PayableFee = {
 export function Checkout({
   dues,
   compact = false,
+  adminSelf = false,
+  mode = "production",
 }: {
   dues: PayableFee[];
   compact?: boolean;
+  adminSelf?: boolean;
+  mode?: "sandbox" | "production";
 }) {
+  const cashfreeClient = useMemo(() => typeof window === "undefined"
+    ? null
+    : import("@cashfreepayments/cashfree-js").then(({ load }) => load({ mode })), [mode]);
   const [selected, setSelected] = useState(dues[0]?.id ?? "");
+  const [amount, setAmount] = useState(dues[0] ? (dues[0].outstanding / 100).toFixed(2) : "");
+  const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [payError, setPayError] = useState("");
   const [payNotice, setPayNotice] = useState("");
@@ -59,7 +68,7 @@ export function Checkout({
   }, [router]);
 
   const fee = dues.find((f) => f.id === selected);
-  if (!fee)
+  if (!fee && !adminSelf)
     return (
       <Card className="text-center">
         <CheckCircle2 className="mx-auto mb-3 size-10 text-primary" />
@@ -75,6 +84,18 @@ export function Checkout({
 
   async function handlePayment() {
     if (paymentLock.current) return;
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(amount) || Number(amount) < 1 || Number(amount) > 100000) {
+      setPayError("Enter an amount from ₹1 to ₹1,00,000.");
+      return;
+    }
+    if (!adminSelf && Math.round(Number(amount) * 100) > fee!.outstanding) {
+      setPayError("Amount exceeds the remaining fee balance.");
+      return;
+    }
+    if (adminSelf && !/^[6-9]\d{9}$/.test(phone)) {
+      setPayError("Enter a valid 10-digit mobile number.");
+      return;
+    }
     paymentLock.current = true;
     setIsLoading(true);
     setPayError("");
@@ -85,7 +106,7 @@ export function Checkout({
 
     try {
       const data = await prepareCheckout(
-        fee!.id,
+        { ...(adminSelf ? {} : { feeDueId: fee!.id }), amount, ...(adminSelf ? { phone } : {}) },
         controller.signal,
         setPayNotice,
       );
@@ -104,7 +125,7 @@ export function Checkout({
 
       if (data.alreadyPaid) {
         router.replace(
-          `/student/history?order_id=${encodeURIComponent(orderId)}`,
+          `${adminSelf ? "/admin" : "/student/history"}?order_id=${encodeURIComponent(orderId)}`,
         );
         return;
       }
@@ -112,9 +133,10 @@ export function Checkout({
       if (typeof paymentSessionId !== "string" || !paymentSessionId) {
         throw new Error("Could not start checkout. Please try again.");
       }
+      if (data.amount !== Math.round(Number(amount) * 100))
+        throw new Error("An earlier checkout has a different amount. Check its status before paying again.");
       checkoutOrderId = orderId;
-      const { load } = await import("@cashfreepayments/cashfree-js");
-      const cashfree = await load({ mode: "production" });
+      const cashfree = await cashfreeClient;
       if (!cashfree)
         throw new Error("Payment gateway could not load. Please try again.");
       const result = await cashfree.checkout({
@@ -122,7 +144,8 @@ export function Checkout({
         redirectTarget: "_modal",
       });
       // Cashfree owns external bank redirects. A returned result (including a
-      // dismissed modal) goes to Payments for authoritative server verification.
+      // dismissed modal or paymentDetails) goes to Payments for authoritative
+      // server verification; a browser error is never recorded as a failed charge.
       if (controller.signal.aborted || result?.redirect) return;
       await fetch("/api/payments/cancel", {
         method: "POST",
@@ -131,7 +154,7 @@ export function Checkout({
         signal: AbortSignal.timeout(15000),
       }).catch(() => undefined);
       router.replace(
-        `/student/history?order_id=${encodeURIComponent(orderId)}`,
+        `${adminSelf ? "/admin" : "/student/history"}?order_id=${encodeURIComponent(orderId)}`,
       );
     } catch (error: unknown) {
       if (controller.signal.aborted) return;
@@ -144,7 +167,7 @@ export function Checkout({
           signal: AbortSignal.timeout(15000),
         }).catch(() => undefined);
         router.replace(
-          `/student/history?order_id=${encodeURIComponent(checkoutOrderId)}`,
+          `${adminSelf ? "/admin" : "/student/history"}?order_id=${encodeURIComponent(checkoutOrderId)}`,
         );
         return;
       }
@@ -159,9 +182,21 @@ export function Checkout({
   }
 
   const disabled = isLoading;
+  const amountInput = (
+    <div className="mb-3 space-y-3">
+      <Field label="Payment amount / भुगतान राशि (₹)">
+        <input inputMode="decimal" type="text" value={amount} disabled={disabled}
+          onChange={(event) => setAmount(event.target.value)} placeholder="500.00" />
+      </Field>
+      {adminSelf && <Field label="Mobile number"><input inputMode="tel" type="tel" value={phone}
+        disabled={disabled} onChange={(event) => setPhone(event.target.value)} placeholder="10-digit mobile number" /></Field>}
+      <p className="text-xs text-muted-foreground">Cashfree checkout amount: {money(Math.round((Number(amount) || 0) * 100))}</p>
+    </div>
+  );
   if (compact) {
     return (
       <div>
+        {amountInput}
         <Button
           size="lg"
           className="w-full justify-between"
@@ -190,6 +225,8 @@ export function Checkout({
             disabled={disabled}
             onChange={(e) => {
               setSelected(e.target.value);
+              const next = dues.find((f) => f.id === e.target.value);
+              setAmount(next ? (next.outstanding / 100).toFixed(2) : "");
             }}
           >
             {dues.map((f) => (
@@ -200,7 +237,7 @@ export function Checkout({
           </select>
         </Field>
       )}
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#d9e4d4] bg-[#edf3e7] p-5">
+      {fee && <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#d9e4d4] bg-[#edf3e7] p-5">
         <div>
           <p className="text-sm font-medium">{fee.label}</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -210,7 +247,8 @@ export function Checkout({
         <span className="text-2xl font-semibold tracking-tight">
           {money(fee.outstanding)}
         </span>
-      </div>
+      </div>}
+      {amountInput}
       <>
         <h2 className="pt-2 text-lg font-semibold">Pay your fee</h2>
         <button

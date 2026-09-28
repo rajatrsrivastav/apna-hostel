@@ -1,6 +1,7 @@
 import { studentPage } from "@/lib/access";
 import { studentData } from "@/lib/data";
 import { Checkout } from "@/components/checkout";
+import { cashfreeMode } from "@/lib/cashfree";
 export default async function Pay() {
   const { user } = await studentPage();
   const { dues } = await studentData(user.id);
@@ -11,6 +12,7 @@ export default async function Pay() {
         फीस भरें · Just a few taps.
       </p>
       <Checkout
+        mode={cashfreeMode()}
         dues={dues
           .filter((f) => f.outstanding > 0)
           .map((f) => ({

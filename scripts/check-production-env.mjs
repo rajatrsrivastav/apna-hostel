@@ -71,24 +71,6 @@ if (
   )
 )
   errors.push("RESEND_FROM_EMAIL must contain a verified sender email");
-if (process.env.ENABLE_CASHFREE_REVIEW_LOGIN === "true") {
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.CASHFREE_REVIEW_EMAIL ?? "")
-  )
-    errors.push(
-      "CASHFREE_REVIEW_EMAIL is required when reviewer login is enabled",
-    );
-  if ((process.env.CASHFREE_REVIEW_PASSWORD?.length ?? 0) < 16)
-    errors.push("CASHFREE_REVIEW_PASSWORD must contain at least 16 characters");
-  if (
-    emails.some(
-      (email) =>
-        email.toLowerCase() ===
-        process.env.CASHFREE_REVIEW_EMAIL?.trim().toLowerCase(),
-    )
-  )
-    errors.push("Reviewer and admin email addresses must be distinct");
-}
 if (errors.length) {
   console.error(
     "Production configuration is not ready:\n" +

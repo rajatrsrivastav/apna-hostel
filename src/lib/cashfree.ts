@@ -4,8 +4,10 @@ import { z } from "zod";
 import { publicOrigin, requiredEnv } from "./env";
 import { AppError } from "./errors";
 
-const API_URL = "https://api.cashfree.com/pg";
 const API_VERSION = "2026-01-01";
+export function cashfreeMode(): "sandbox" | "production" {
+  return process.env.CASHFREE_APP_ID?.startsWith("TEST_") ? "sandbox" : "production";
+}
 
 export class CashfreeApiError extends AppError {
   constructor(public providerStatus: number) {
@@ -19,7 +21,8 @@ async function api(
   body?: object,
   idempotencyKey?: string,
 ) {
-  const response = await fetch(`${API_URL}/${path}`, {
+  const host = cashfreeMode() === "sandbox" ? "sandbox.cashfree.com" : "api.cashfree.com";
+  const response = await fetch(`https://${host}/pg/${path}`, {
     method,
     headers: {
       "x-client-id": requiredEnv("CASHFREE_APP_ID"),
@@ -44,10 +47,10 @@ async function api(
   return response.json();
 }
 
-export function cashfreeCallbackUrls() {
+export function cashfreeCallbackUrls(role: "student" | "admin" = "student") {
   const origin = publicOrigin(true);
   return {
-    return_url: `${origin}/student/history?order_id={order_id}`,
+    return_url: `${origin}/${role === "admin" ? "admin" : "student/history"}?order_id={order_id}`,
     notify_url: `${origin}/api/cashfree/webhook`,
   };
 }

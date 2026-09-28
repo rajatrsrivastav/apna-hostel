@@ -73,11 +73,13 @@ export default async function StudentDetail({
         amount={student.user.monthlyRent}
       />
       <h2 className="text-lg font-semibold">Fee details</h2>
+      <p className="text-sm text-muted-foreground">Paid {money(data.totalPaid)} · Remaining {money(data.totalDue)}</p>
       {data.dues.length ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {data.dues.map((f) => (
             <div key={`${f.id}-${f.revision}`} className="space-y-2">
               <EditFee fee={{ ...f, pending: !!f.pending }} />
+              <p className="px-2 text-xs text-muted-foreground">Paid {money(f.paid)} · Remaining {money(f.outstanding)}</p>
             </div>
           ))}
         </div>
