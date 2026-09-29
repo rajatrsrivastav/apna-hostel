@@ -66,11 +66,11 @@ References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/
 - Admin accepts → complete full name, phone, ITI/Diploma, trade, year/semester.
 - Pending/rejected accounts cannot access dashboard pages, receipts, or payment/profile APIs.
 - My fee → Current Month Rent, Previous Due, Total Due, status, and **Pay Now / फीस भरें**.
-- Monthly rent is paid through Cashfree in two fixed halves (₹500 then ₹500 for ₹1,000 rent). The student amount is read-only, and the server verifies each installment against the remaining fee. Other student fees are paid in full.
+- Enter a full or partial amount (minimum ₹1) against an unpaid fee, then pay online through Cashfree.
 - Payments → history, status and a printable receipt once verified.
 - Help → office call button when `HOSTEL_SUPPORT_PHONE` is set.
 
-Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) from 1 October 2026 onward. The cutoff is centralized in `src/lib/fee-policy.ts`; no new environment variable is needed. Earlier dues are not payable unless a specific fee has been explicitly enabled for early collection in the database. The admin fee form accepts dates from 1 October onward; its saved fees appear when collection starts. Unpaid monthly dues remain on the account and sum into Previous Due; checkout starts with the oldest unpaid fee and lets the student select another month. The outstanding balance updates only after Cashfree verification.
+Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) from 1 October 2026 onward. The cutoff is centralized in `src/lib/fee-policy.ts`; no new environment variable is needed. Earlier dues are not payable. Unpaid monthly dues remain on the account and sum into Previous Due; checkout starts with the oldest unpaid fee and lets the student select another month. The outstanding balance updates only after Cashfree verification.
 
 ## Admin workflow and accounting
 

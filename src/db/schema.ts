@@ -142,7 +142,6 @@ export const feeDues = pgTable(
     label: text("label").notNull(),
     amount: integer("amount").notNull(),
     dueDate: text("due_date").notNull(),
-    earlyCollectionEnabled: boolean("early_collection_enabled").default(false).notNull(),
     waivedAmount: integer("waived_amount").default(0).notNull(),
     adjustmentNote: text("adjustment_note"),
     adjustedBy: text("adjusted_by").references(() => users.id),

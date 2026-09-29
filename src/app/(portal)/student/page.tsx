@@ -103,7 +103,6 @@ export default async function StudentDashboard() {
                   label: next.label,
                   dueDate: next.dueDate,
                   outstanding: next.outstanding,
-                  nextPayment: next.nextPayment,
                 }] : []}
               />
             ) : (

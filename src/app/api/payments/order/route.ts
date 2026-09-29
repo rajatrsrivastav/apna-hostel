@@ -1,5 +1,5 @@
 import { rateLimit } from "@/lib/rate-limit";
-import { and, desc, eq, ne, or, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, ne, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { payments, studentProfiles, users } from "@/db/schema";
@@ -20,8 +20,7 @@ import {
   ORDER_LIFETIME_MS,
   validateCashfreeOrder,
 } from "@/lib/payment-verification";
-import { isCollectibleFee } from "@/lib/fee-policy";
-import { nextStudentPayment } from "@/lib/installments";
+import { collectionStarted, isPostLaunchFee } from "@/lib/fee-policy";
 
 export const POST = mutation(async (req) => {
   const user = await requireUser();
@@ -133,11 +132,6 @@ export const POST = mutation(async (req) => {
         "Your fee balance changed. Please check payment status before trying again.",
         409,
       );
-    if (reservation.expectedAmount !== null && record.amount !== reservation.expectedAmount)
-      throw new AppError(
-        "A previous checkout has a different amount. Check its status before paying again.",
-        409,
-      );
     // Reopening the SAME active order cannot create a second payable order.
     // Its age is irrelevant while Cashfree allows a retry and no bank payment
     // is pending. In particular, NOT_ATTEMPTED must never block Pay Now.
@@ -155,25 +149,12 @@ async function reservePayment(userId: string, feeDueId: string, requestedAmount:
   return getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, feeDueId);
     if (fee.userId !== userId) throw new AppError("Fee not found.", 404);
-    if (!isCollectibleFee(fee))
-      throw new AppError("This fee is not available for payment yet.", 409);
+    if (!collectionStarted() || !isPostLaunchFee(fee))
+      throw new AppError("Fee collection starts on 1 October 2026.", 409);
     const amount = await feeBalance(tx, fee);
     if (!amount) throw new AppError("This fee is already paid.");
-    const [progress] = await tx.select({
-      count: sql<number>`count(*)::int`,
-    }).from(payments).where(and(
-      eq(payments.feeDueId, fee.id), eq(payments.status, "verified"),
-    ));
-    const nextPayment = nextStudentPayment({
-      outstanding: amount, verifiedPaymentCount: progress.count, rentMonth: fee.rentMonth,
-    });
-    if (!nextPayment)
-      throw new AppError("This fee needs office review before another payment.", 409);
-    if (requestedAmount !== nextPayment.amount)
-      throw new AppError(
-        `This fee's next payment is ₹${(nextPayment.amount / 100).toFixed(2)}. Refresh and try again.`,
-        409,
-      );
+    if (requestedAmount > amount)
+      throw new AppError("Amount exceeds the remaining fee balance.", 409);
     const [pending] = await tx
       .select()
       .from(payments)
@@ -202,7 +183,7 @@ async function reservePayment(userId: string, feeDueId: string, requestedAmount:
       .limit(1);
     const reusable = pending ?? previous;
     if (reusable && reusable.attemptStatus !== "abandoned") {
-      return { record: reusable, existing: true, balance: amount, expectedAmount: nextPayment.amount };
+      return { record: reusable, existing: true, balance: amount };
     }
     const id = crypto.randomUUID();
     const [record] = await tx
@@ -217,7 +198,7 @@ async function reservePayment(userId: string, feeDueId: string, requestedAmount:
         cashfreeOrderId: `apna_${id.replace(/-/g, "")}`,
       })
       .returning();
-    return { record, existing: false, balance: amount, expectedAmount: nextPayment.amount };
+    return { record, existing: false, balance: amount };
   });
 }
 
@@ -239,12 +220,12 @@ async function reserveAdminPayment(userId: string, requestedAmount: number) {
     )).orderBy(desc(payments.createdAt)).limit(1);
     const reusable = pending ?? previous;
     if (reusable && reusable.attemptStatus !== "abandoned")
-      return { record: reusable, existing: true, balance: null, expectedAmount: null };
+      return { record: reusable, existing: true, balance: null };
     const id = crypto.randomUUID();
     const [record] = await tx.insert(payments).values({
       id, userId, feeDueId: null, amount: requestedAmount, method: "cashfree",
       attemptStatus: "checkout_started", cashfreeOrderId: `apna_${id.replace(/-/g, "")}`,
     }).returning();
-    return { record, existing: false, balance: null, expectedAmount: null };
+    return { record, existing: false, balance: null };
   });
 }
