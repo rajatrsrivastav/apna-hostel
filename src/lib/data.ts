@@ -39,21 +39,25 @@ export async function studentData(userId: string) {
       pending: related.find((p) => p.status === "pending"),
     };
   });
-  return {
-    dues,
-    history,
-    currentMonthRent: dues
-      .filter((f) => f.rentMonth === indiaMonth())
-      .reduce((s, f) => s + f.amount, 0),
-    currentMonthDue: dues
-      .filter((f) => f.rentMonth === indiaMonth())
-      .reduce((s, f) => s + f.outstanding, 0),
-    previousDue: dues
-      .filter((f) => f.rentMonth !== indiaMonth())
-      .reduce((s, f) => s + f.outstanding, 0),
-    totalDue: dues.reduce((s, f) => s + f.outstanding, 0),
-    totalPaid: dues.reduce((s, fee) => s + fee.paid, 0),
-  };
+    const currentOrLaunchMonth = (f: { rentMonth: string | null }) =>
+      f.rentMonth === indiaMonth() ||
+      (indiaMonth() < FEE_COLLECTION_START_DATE.slice(0, 7) &&
+        f.rentMonth === FEE_COLLECTION_START_DATE.slice(0, 7));
+    return {
+      dues,
+      history,
+      currentMonthRent: dues
+        .filter((f) => currentOrLaunchMonth(f))
+        .reduce((s, f) => s + f.amount, 0),
+      currentMonthDue: dues
+        .filter((f) => currentOrLaunchMonth(f))
+        .reduce((s, f) => s + f.outstanding, 0),
+      previousDue: dues
+        .filter((f) => !currentOrLaunchMonth(f))
+        .reduce((s, f) => s + f.outstanding, 0),
+      totalDue: dues.reduce((s, f) => s + f.outstanding, 0),
+      totalPaid: dues.reduce((s, fee) => s + fee.paid, 0),
+    };
 }
 export async function adminStudents() {
   await generateMonthlyRent();

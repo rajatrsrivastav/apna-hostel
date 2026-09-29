@@ -1,10 +1,14 @@
 // First billable rent period for the October 2026 launch.
 export const FEE_COLLECTION_START_DATE = "2026-10-01";
 
-export function collectionStarted(now = new Date()) {
+export function collectionStarted(now?: Date) {
+  if (process.env.ENABLE_CASHFREE_REVIEW_LOGIN === "true" && !now) {
+    return true;
+  }
+  const dateObj = now ?? new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(now);
+  }).formatToParts(dateObj);
   const part = (type: string) => parts.find((item) => item.type === type)!.value;
   const date = `${part("year")}-${part("month")}-${part("day")}`;
   return date >= FEE_COLLECTION_START_DATE;
