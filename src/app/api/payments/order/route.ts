@@ -20,7 +20,7 @@ import {
   ORDER_LIFETIME_MS,
   validateCashfreeOrder,
 } from "@/lib/payment-verification";
-import { collectionStarted, isPostLaunchFee } from "@/lib/fee-policy";
+import { isCollectibleFee } from "@/lib/fee-policy";
 import { nextStudentPayment } from "@/lib/installments";
 
 export const POST = mutation(async (req) => {
@@ -155,8 +155,8 @@ async function reservePayment(userId: string, feeDueId: string, requestedAmount:
   return getDb().transaction(async (tx) => {
     const fee = await lockFee(tx, feeDueId);
     if (fee.userId !== userId) throw new AppError("Fee not found.", 404);
-    if (!collectionStarted() || !isPostLaunchFee(fee))
-      throw new AppError("Fee collection starts on 1 October 2026.", 409);
+    if (!isCollectibleFee(fee))
+      throw new AppError("This fee is not available for payment yet.", 409);
     const amount = await feeBalance(tx, fee);
     if (!amount) throw new AppError("This fee is already paid.");
     const [progress] = await tx.select({

@@ -70,7 +70,7 @@ References: [Hosted checkout](https://www.cashfree.com/docs/payments/online/web/
 - Payments → history, status and a printable receipt once verified.
 - Help → office call button when `HOSTEL_SUPPORT_PHONE` is set.
 
-Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) from 1 October 2026 onward. The cutoff is centralized in `src/lib/fee-policy.ts`; no new environment variable is needed. Earlier dues are not payable. Unpaid monthly dues remain on the account and sum into Previous Due; checkout starts with the oldest unpaid fee and lets the student select another month. The outstanding balance updates only after Cashfree verification.
+Rent is generated automatically at the student’s configured monthly rate (default ₹1,000) from 1 October 2026 onward. The cutoff is centralized in `src/lib/fee-policy.ts`; no new environment variable is needed. Earlier dues are not payable unless a specific fee has been explicitly enabled for early collection in the database. The admin fee form accepts dates from 1 October onward; its saved fees appear when collection starts. Unpaid monthly dues remain on the account and sum into Previous Due; checkout starts with the oldest unpaid fee and lets the student select another month. The outstanding balance updates only after Cashfree verification.
 
 ## Admin workflow and accounting
 

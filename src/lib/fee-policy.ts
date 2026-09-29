@@ -15,3 +15,10 @@ export function isPostLaunchFee(fee: { rentMonth: string | null; dueDate: string
     ? fee.rentMonth >= FEE_COLLECTION_START_DATE.slice(0, 7)
     : fee.dueDate >= FEE_COLLECTION_START_DATE;
 }
+
+export function isCollectibleFee(
+  fee: { rentMonth: string | null; dueDate: string; earlyCollectionEnabled: boolean },
+  now = new Date(),
+) {
+  return fee.earlyCollectionEnabled || (collectionStarted(now) && isPostLaunchFee(fee));
+}

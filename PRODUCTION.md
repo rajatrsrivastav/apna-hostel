@@ -2,6 +2,8 @@
 
 The October 2026 update preserves the UI, Google authentication, student/admin approval, monthly rent, Cashfree checkout, and legal pages. Rent and student payments begin on 1 October 2026, controlled by `src/lib/fee-policy.ts` with no new environment variable. The reviewer login helper has been removed.
 
+Migration `0010_early_collection_exception.sql` adds a default-false flag for an explicitly approved early fee. Apply it before deploying code that reads the flag. The ordinary October rent generator and admin fee form still start on 1 October; an early fee must be enabled on its individual database row.
+
 ## Cleanup
 
 - Deleted `scripts/seed-admin.ts` and its `db:seed` command: verified Google identities already receive their configured admin role through the existing authentication/access checks.
@@ -52,6 +54,6 @@ Student monthly rent orders allow only the first half and then the remaining hal
 
 ## Remaining external checks
 
-Before launch, confirm the production domain is whitelisted in Cashfree, the webhook URL is subscribed and publicly reachable, the OAuth redirect matches the deployed origin, migration `0009` is applied, and a live payment and receipt work. Sandbox testing requires `TEST_` credentials and a separate HTTPS staging deployment/database.
+Before launch, confirm the production domain is whitelisted in Cashfree, the webhook URL is subscribed and publicly reachable, the OAuth redirect matches the deployed origin, migration `0010` is applied, and a live payment and receipt work. Sandbox testing requires `TEST_` credentials and a separate HTTPS staging deployment/database.
 
 References: [Vercel Node versions](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions), [Vercel cron management](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [Cashfree Create Order](https://www.cashfree.com/docs/api-reference/payments/latest/orders/create-order).

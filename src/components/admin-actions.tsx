@@ -9,6 +9,7 @@ import { Card } from "./ui/card";
 import { api, Field, Feedback, useAction } from "./form-kit";
 import { money, dateLabel } from "@/lib/money";
 import { StatusBadge } from "./ui/badge";
+import { FEE_COLLECTION_START_DATE } from "@/lib/fee-policy";
 export function AddFee({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false),
     action = useAction(),
@@ -29,6 +30,7 @@ export function AddFee({ userId }: { userId: string }) {
             action.run(async () => {
               await api("/api/admin/fees", { ...form, userId });
               setOpen(false);
+              action.setSuccess("Fee saved. Fees due from October appear when collection starts on 1 October.");
               router.refresh();
             });
           }}
@@ -48,7 +50,7 @@ export function AddFee({ userId }: { userId: string }) {
               <Input name="amount" inputMode="decimal" required />
             </Field>
             <Field label="Due date">
-              <Input name="dueDate" type="date" required />
+              <Input name="dueDate" type="date" min={FEE_COLLECTION_START_DATE} required />
             </Field>
           </div>
           <div className="flex gap-3">
@@ -66,7 +68,7 @@ export function AddFee({ userId }: { userId: string }) {
           </div>
         </form>
       )}
-      <Feedback error={action.error} />
+      <Feedback error={action.error} success={action.success} />
     </Card>
   );
 }

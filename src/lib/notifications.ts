@@ -18,6 +18,7 @@ import {
   buildOverdueReminderEmail,
 } from "./email";
 import { publicOrigin } from "./env";
+import { isCollectibleFee } from "./fee-policy";
 
 const getBaseUrl = () => publicOrigin();
 
@@ -75,6 +76,7 @@ export async function notifyRentGenerated(feeDueId: string) {
     let previousDue = 0;
 
     for (const f of allFees) {
+      if (!isCollectibleFee(f)) continue;
       const paid = allPayments
         .filter((p) => p.feeDueId === f.id)
         .reduce((sum, p) => sum + p.amount, 0);
@@ -310,6 +312,7 @@ export async function sendOverdueReminders(cooldownDays = 3) {
     let mostOverdueFee: (typeof fees)[0] | null = null;
 
     for (const f of fees) {
+      if (!isCollectibleFee(f)) continue;
       const paid = history
         .filter((p) => p.feeDueId === f.id)
         .reduce((sum, p) => sum + p.amount, 0);

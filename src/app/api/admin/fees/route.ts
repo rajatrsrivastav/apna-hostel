@@ -15,10 +15,13 @@ import {
 import { generateMonthlyRent } from "@/lib/rent";
 import { configuredRole } from "@/lib/env";
 import { lockFee, feeBalance } from "@/lib/ledger";
+import { FEE_COLLECTION_START_DATE } from "@/lib/fee-policy";
 export const POST = mutation(async (req) => {
   const admin = await requireAdmin();
   await rateLimit(admin.id, "admin/fees", 30);
   const values = feeSchema.parse(await jsonBody(req));
+  if (values.dueDate < FEE_COLLECTION_START_DATE)
+    throw new AppError("Fees before 1 October 2026 cannot be added through this form.", 409);
   const [student] = await getDb()
     .select()
     .from(users)

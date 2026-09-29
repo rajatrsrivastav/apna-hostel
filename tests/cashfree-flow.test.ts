@@ -36,14 +36,19 @@ const state = vi.hoisted(() => ({
   terminates: 0,
   loseCreateResponse: false,
   offline: false,
+  now: new Date("2026-10-01T00:00:00+05:30"),
 }));
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/access", () => ({ requireUser: async () => state.user }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => undefined }));
-vi.mock("@/lib/fee-policy", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/fee-policy")>(),
-  collectionStarted: () => true,
-}));
+vi.mock("@/lib/fee-policy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/fee-policy")>();
+  return {
+    ...actual,
+    isCollectibleFee: (fee: Parameters<typeof actual.isCollectibleFee>[0]) =>
+      actual.isCollectibleFee(fee, state.now),
+  };
+});
 vi.mock("@/lib/notifications", () => ({
   notifyPaymentSuccess: async () => undefined,
   notifyPaymentIncomplete: async () => undefined,
@@ -127,6 +132,7 @@ beforeEach(() => {
   state.terminates = 0;
   state.loseCreateResponse = false;
   state.offline = false;
+  state.now = new Date("2026-10-01T00:00:00+05:30");
 });
 
 async function student() {
@@ -215,6 +221,24 @@ it("rejects a browser amount outside the fixed first rent installment", async ()
   expect((await order(feeId, "501.00")).response.status).toBe(409);
   expect((await order(feeId, "1000.00")).response.status).toBe(409);
   expect(state.creates).toBe(0);
+});
+
+it("opens only the explicitly enabled September test rent before October", async () => {
+  state.now = new Date("2026-09-29T00:00:00+05:30");
+  const pilot = await student();
+  await db.update(schema.feeDues).set({
+    amount: 10000, rentMonth: "2026-09", dueDate: "2026-09-30",
+    earlyCollectionEnabled: true,
+  }).where(eq(schema.feeDues.id, pilot.feeId));
+  const other = await student();
+  await db.update(schema.feeDues).set({
+    amount: 10000, rentMonth: "2026-09", dueDate: "2026-09-30",
+  }).where(eq(schema.feeDues.id, other.feeId));
+  expect((await order(other.feeId, "50.00")).response.status).toBe(409);
+  state.user = { id: pilot.id, email: `${pilot.id}@example.test`, role: "student" };
+  const pilotOrder = await order(pilot.feeId, "50.00");
+  expect(pilotOrder.response.status).toBe(200);
+  expect((await record(pilotOrder.body.orderId)).amount).toBe(5000);
 });
 
 it("credits exactly two ₹500 installments once each against ₹1000 rent", async () => {
