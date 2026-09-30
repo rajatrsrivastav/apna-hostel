@@ -3,7 +3,6 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import type { Transaction } from "./ledger";
 import { FEE_COLLECTION_START_DATE } from "./fee-policy";
-import { REVIEW_USER_ID } from "./env";
 export { FEE_COLLECTION_START_DATE } from "./fee-policy";
 export function indiaMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -28,11 +27,7 @@ export async function generateMonthlyRentWithIds(
     WITH eligible AS MATERIALIZED (
       SELECT id, accepted_at, monthly_rent FROM users
       WHERE role = 'student' AND approval_status = 'accepted' AND accepted_at IS NOT NULL
-      AND id <> ${REVIEW_USER_ID}
       ${userId ? sql`AND id = ${userId}` : sql``}
-      AND NOT EXISTS (
-        SELECT 1 FROM fee_dues f WHERE f.user_id = users.id AND f.rent_month = ${currentMonth}
-      )
       ORDER BY id FOR UPDATE
     )
     INSERT INTO fee_dues (id, user_id, label, amount, due_date, rent_month)
