@@ -6,6 +6,9 @@ import { requireAdmin } from "@/lib/access";
 import { getStudent, studentData } from "@/lib/data";
 import { money, dateLabel } from "@/lib/money";
 import { AddFee, EditFee, MonthlyRent } from "@/components/admin-actions";
+import { YearCoverageManager } from "@/components/year-coverage";
+import { academicYearStart } from "@/lib/academic-year";
+import { indiaMonth } from "@/lib/rent";
 import { PaymentHistory } from "@/components/payment-history";
 export default async function StudentDetail({
   params,
@@ -67,19 +70,33 @@ export default async function StudentDetail({
       {student.profile && student.user.approvalStatus === "accepted" && (
         <AddFee userId={id} />
       )}
+      {student.user.approvalStatus === "accepted" && (
+        <YearCoverageManager
+          userId={id}
+          startYear={academicYearStart(indiaMonth())}
+          records={data.yearCoverage.map((c) => ({
+            ...c,
+            revokedAt: c.revokedAt?.toISOString() ?? null,
+          }))}
+        />
+      )}
       <MonthlyRent
         key={student.user.monthlyRent}
         userId={id}
         amount={student.user.monthlyRent}
       />
       <h2 className="text-lg font-semibold">Fee details</h2>
-      <p className="text-sm text-muted-foreground">Paid {money(data.totalPaid)} · Remaining {money(data.totalDue)}</p>
+      <p className="text-sm text-muted-foreground">
+        Paid {money(data.totalPaid)} · Remaining {money(data.totalDue)}
+      </p>
       {data.dues.length ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {data.dues.map((f) => (
             <div key={`${f.id}-${f.revision}`} className="space-y-2">
-              <EditFee fee={{ ...f, pending: !!f.pending }} />
-              <p className="px-2 text-xs text-muted-foreground">Paid {money(f.paid)} · Remaining {money(f.outstanding)}</p>
+              <EditFee userId={id} fee={{ ...f, pending: !!f.pending }} />
+              <p className="px-2 text-xs text-muted-foreground">
+                Paid {money(f.paid)} · Remaining {money(f.outstanding)}
+              </p>
             </div>
           ))}
         </div>

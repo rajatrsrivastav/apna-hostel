@@ -8,6 +8,8 @@ import { Input } from "./ui/input";
 import { Card } from "./ui/card";
 import { api, Field, Feedback, useAction } from "./form-kit";
 import { money, dateLabel } from "@/lib/money";
+import { AcademicYearForm } from "./year-coverage";
+import { academicYearStart } from "@/lib/academic-year";
 import { StatusBadge } from "./ui/badge";
 export function AddFee({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false),
@@ -53,7 +55,8 @@ export function AddFee({ userId }: { userId: string }) {
           </div>
           <div className="flex gap-3">
             <Button pending={action.busy} pendingText="Loading...">
-              <Plus />Save fee
+              <Plus />
+              Save fee
             </Button>
             <Button
               type="button"
@@ -71,6 +74,7 @@ export function AddFee({ userId }: { userId: string }) {
   );
 }
 export type EditableFee = {
+  yearCovered?: boolean;
   rentMonth?: string | null;
   id: string;
   revision: number;
@@ -84,8 +88,10 @@ export type EditableFee = {
   adjustmentNote: string | null;
   pending: boolean;
 };
-export function EditFee({ fee }: { fee: EditableFee }) {
-  const [mode, setMode] = useState<"" | "update" | "paid" | "unpaid">(""),
+export function EditFee({ fee, userId }: { fee: EditableFee; userId: string }) {
+  const [mode, setMode] = useState<"" | "update" | "paid" | "unpaid" | "year">(
+      "",
+    ),
     action = useAction(),
     router = useRouter();
   return (
@@ -116,7 +122,11 @@ export function EditFee({ fee }: { fee: EditableFee }) {
           Manual adjustment: {money(fee.waivedAmount)} · {fee.adjustmentNote}
         </p>
       )}
-      {fee.pending ? (
+      {fee.yearCovered ? (
+        <p className="text-xs text-primary">
+          Covered by an academic year payment. Manage the year above.
+        </p>
+      ) : fee.pending ? (
         <p className="text-xs text-amber-800">
           Resolve the pending payment before editing this fee.
         </p>
@@ -138,6 +148,14 @@ export function EditFee({ fee }: { fee: EditableFee }) {
             </Button>
           )}
         </div>
+      ) : mode === "year" ? (
+        <AcademicYearForm
+          userId={userId}
+          startYear={academicYearStart(fee.rentMonth!)}
+          feeId={fee.id}
+          feeRevision={fee.revision}
+          onCancel={() => setMode("")}
+        />
       ) : (
         <form
           className="space-y-4 border-t border-border pt-4"
@@ -159,7 +177,7 @@ export function EditFee({ fee }: { fee: EditableFee }) {
             {mode === "update"
               ? "Update fee"
               : mode === "paid"
-                ? "Waive remaining fee"
+                ? "Waive this fee only"
                 : "Undo manual paid adjustment"}
           </p>
           {mode === "update" ? (
@@ -188,6 +206,15 @@ export function EditFee({ fee }: { fee: EditableFee }) {
                 : "This restores the amount cleared by an admin. Verified payments remain in the history."}
             </p>
           )}
+          {mode === "paid" && fee.rentMonth && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMode("year")}
+            >
+              Paid for the whole academic year
+            </Button>
+          )}
           <Field label="Reason">
             <Input
               name="note"
@@ -199,7 +226,8 @@ export function EditFee({ fee }: { fee: EditableFee }) {
           </Field>
           <div className="flex gap-2">
             <Button pending={action.busy} pendingText="Loading...">
-              <Check />Confirm
+              <Check />
+              Confirm
             </Button>
             <Button
               type="button"
@@ -216,7 +244,15 @@ export function EditFee({ fee }: { fee: EditableFee }) {
     </Card>
   );
 }
-export function Reconcile({ id, canRetry = false, retryPath = "/student/pay" }: { id: string; canRetry?: boolean; retryPath?: string }) {
+export function Reconcile({
+  id,
+  canRetry = false,
+  retryPath = "/student/pay",
+}: {
+  id: string;
+  canRetry?: boolean;
+  retryPath?: string;
+}) {
   const [retrySafe, setRetrySafe] = useState(false);
   const action = useAction(),
     router = useRouter();
@@ -228,10 +264,11 @@ export function Reconcile({ id, canRetry = false, retryPath = "/student/pay" }: 
         pendingText="Loading..."
         onClick={() =>
           action.run(async () => {
-            const r = await api<{ status: string; message?: string; retrySafe: boolean }>(
-              "/api/payments/reconcile",
-              { paymentId: id },
-            );
+            const r = await api<{
+              status: string;
+              message?: string;
+              retrySafe: boolean;
+            }>("/api/payments/reconcile", { paymentId: id });
             setRetrySafe(r.retrySafe);
             action.setSuccess(
               r.status === "verified"
@@ -242,10 +279,13 @@ export function Reconcile({ id, canRetry = false, retryPath = "/student/pay" }: 
           })
         }
       >
-        <RefreshCw />Check status
+        <RefreshCw />
+        Check status
       </Button>
       {canRetry && retrySafe && (
-        <Button asChild><Link href={retryPath}>Try payment again</Link></Button>
+        <Button asChild>
+          <Link href={retryPath}>Try payment again</Link>
+        </Button>
       )}
       <Feedback error={action.error} success={action.success} />
     </div>
@@ -308,7 +348,8 @@ export function MonthlyRent({
           month.
         </p>
         <Button pending={action.busy} pendingText="Loading...">
-          <Pencil />Save monthly fee
+          <Pencil />
+          Save monthly fee
         </Button>
       </form>
       <Feedback error={action.error} success={action.success} />

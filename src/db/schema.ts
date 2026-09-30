@@ -39,7 +39,9 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   role: roleEnum("role").default("student").notNull(),
-  approvalStatus: approvalEnum("approval_status").default("onboarding_incomplete").notNull(),
+  approvalStatus: approvalEnum("approval_status")
+    .default("onboarding_incomplete")
+    .notNull(),
   monthlyRent: integer("monthly_rent").default(100_000).notNull(),
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   approvalRevision: integer("approval_revision").default(0).notNull(),
@@ -231,7 +233,9 @@ export const payments = pgTable(
       .where(sql`${t.status} = 'pending'`),
     uniqueIndex("one_pending_admin_payment_per_user")
       .on(t.userId)
-      .where(sql`${t.feeDueId} is null and ${t.status} = 'pending' and ${t.method} = 'cashfree'`),
+      .where(
+        sql`${t.feeDueId} is null and ${t.status} = 'pending' and ${t.method} = 'cashfree'`,
+      ),
   ],
 );
 
@@ -257,5 +261,61 @@ export const notificationLogs = pgTable(
     index("notification_fee_idx").on(t.feeDueId),
     index("notification_payment_idx").on(t.paymentId),
     index("notification_type_sent_idx").on(t.type, t.sentAt),
+  ],
+);
+
+// Retain each academic year's coverage, including revoked entries, so catch-up
+// billing never recreates charges for an earlier paid year.
+export const rentCoverage = pgTable(
+  "rent_coverage",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    startMonth: text("start_month").notNull(),
+    endMonth: text("end_month").notNull(),
+    continueNextYear: boolean("continue_next_year").notNull(),
+    note: text("note").notNull(),
+    recordedBy: text("recorded_by")
+      .notNull()
+      .references(() => users.id),
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revision: integer("revision").default(0).notNull(),
+    feeAdjustments: jsonb("fee_adjustments")
+      .$type<
+        {
+          feeId: string;
+          waived: number;
+          revisionAfter: number;
+        }[]
+      >()
+      .default([])
+      .notNull(),
+    audit: jsonb("audit")
+      .$type<
+        {
+          actor: string;
+          action: string;
+          note: string;
+          at: string;
+          continueNextYear: boolean;
+        }[]
+      >()
+      .default([])
+      .notNull(),
+  },
+  (t) => [
+    index("rent_coverage_user_idx").on(t.userId),
+    uniqueIndex("one_active_year_coverage")
+      .on(t.userId, t.startMonth)
+      .where(sql`${t.revokedAt} is null`),
+    check(
+      "academic_year_range",
+      sql`${t.startMonth} ~ '^[0-9]{4}-08$' and ${t.endMonth} ~ '^[0-9]{4}-07$' and left(${t.endMonth},4)::int = left(${t.startMonth},4)::int + 1`,
+    ),
   ],
 );

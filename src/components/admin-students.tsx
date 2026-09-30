@@ -6,6 +6,9 @@ import { Input } from "./ui/input";
 import { StatusBadge } from "./ui/badge";
 import { money, dateLabel } from "@/lib/money";
 export type StudentRow = {
+  year_start_month?: string | null;
+  year_end_month?: string | null;
+  continue_next_year?: boolean | null;
   id: string;
   name: string;
   phone: string | null;
@@ -19,10 +22,24 @@ export type StudentRow = {
 export function AdminStudents({
   students,
   compact = false,
+  currentMonth,
 }: {
   students: StudentRow[];
   compact?: boolean;
+  currentMonth: string;
 }) {
+  const plan = (s: StudentRow) =>
+    !s.year_end_month
+      ? "monthly"
+      : s.continue_next_year === false && currentMonth > s.year_end_month
+        ? "former"
+        : s.year_start_month! <= currentMonth &&
+            currentMonth <= s.year_end_month
+          ? s.continue_next_year === false
+            ? "leaving"
+            : "year"
+          : "monthly";
+  const [feePlan, setFeePlan] = useState("");
   const [query, setQuery] = useState(""),
     [course, setCourse] = useState(""),
     [status, setStatus] = useState("");
@@ -33,7 +50,11 @@ export function AdminStudents({
           .toLowerCase()
           .includes(query.toLowerCase())) &&
       (!course || s.course === course) &&
-      (!status || s.status === status),
+      (!status || s.status === status) &&
+      (!feePlan ||
+        (feePlan === "year"
+          ? ["year", "leaving"].includes(plan(s))
+          : plan(s) === feePlan)),
   );
   const [page, setPage] = useState(0);
   const rows = compact
@@ -101,6 +122,21 @@ export function AdminStudents({
           <option value="unpaid">Unpaid</option>
           <option value="pending">Verification pending</option>
         </select>
+        <select
+          aria-label="Filter fee plan"
+          className="!w-auto text-sm"
+          value={feePlan}
+          onChange={(e) => {
+            setFeePlan(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="">All fee plans</option>
+          <option value="monthly">Monthly rent</option>
+          <option value="year">Academic year paid</option>
+          <option value="leaving">Leaving after July</option>
+          <option value="former">Former students — rent stopped</option>
+        </select>
       </div>
       {rows.length ? (
         <>
@@ -145,6 +181,13 @@ export function AdminStudents({
                           <span className="block font-semibold">{s.name}</span>
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {s.phone || "Profile incomplete"}
+                            {plan(s) !== "monthly" && (
+                              <span className="block text-primary">
+                                {plan(s) === "former"
+                                  ? "Rent stopped"
+                                  : `Year paid through Jul ${s.year_end_month!.slice(0, 4)}${plan(s) === "leaving" ? " · Leaving" : ""}`}
+                              </span>
+                            )}
                           </span>
                         </span>
                       </Link>
@@ -190,6 +233,13 @@ export function AdminStudents({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold">{s.name}</p>
+                    {plan(s) !== "monthly" && (
+                      <p className="text-xs text-primary">
+                        {plan(s) === "former"
+                          ? "Rent stopped"
+                          : "Academic year paid"}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {s.phone || "Profile incomplete"} · {s.course || "—"}
                     </p>

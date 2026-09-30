@@ -1,3 +1,4 @@
+import { indiaMonth } from "@/lib/rent";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -19,10 +20,17 @@ import { cashfreeMode } from "@/lib/cashfree";
 export default async function StudentDashboard() {
   const { user, profile } = await studentPage();
   const data = await studentData(user.id);
-  const next = data.dues.find((f) => f.outstanding > 0);
-  const pending = data.history.some(
-    (p) => p.status === "pending",
+  const latestCoverage = data.yearCoverage.find(
+    (c) => !c.revokedAt && c.startMonth <= indiaMonth(),
   );
+  const coverage =
+    latestCoverage &&
+    (latestCoverage.endMonth >= indiaMonth() ||
+      !latestCoverage.continueNextYear)
+      ? latestCoverage
+      : undefined;
+  const next = data.dues.find((f) => f.outstanding > 0);
+  const pending = data.history.some((p) => p.status === "pending");
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-7 flex flex-wrap items-start justify-between gap-3">
@@ -42,6 +50,19 @@ export default async function StudentDashboard() {
           {profile.course} · {profile.studyYear}
         </span>
       </div>
+      {coverage && (
+        <Card className="mb-5">
+          <p className="font-semibold">
+            Academic year rent paid through July {coverage.endMonth.slice(0, 4)}
+          </p>
+          <p className="mt-2 text-sm">
+            {coverage.continueNextYear
+              ? `Monthly rent resumes in August ${coverage.endMonth.slice(0, 4)}.`
+              : "Rent stops after this academic year. Your account and payment history remain available."}{" "}
+            Extra fees and unpaid earlier years remain due.
+          </p>
+        </Card>
+      )}
       <Card className="relative overflow-hidden border-[#d9e4d4] bg-[#edf3e7] p-6 sm:p-8">
         <div
           className="absolute -right-12 -top-16 size-64 rounded-full border-[35px] border-white/40"
@@ -80,7 +101,10 @@ export default async function StudentDashboard() {
           <p className="mt-2 break-words text-5xl font-semibold tracking-[-0.05em] sm:text-6xl">
             {money(data.totalDue)}
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">Already paid {money(data.totalPaid)} · Remaining {money(data.totalDue)}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Already paid {money(data.totalPaid)} · Remaining{" "}
+            {money(data.totalDue)}
+          </p>
           {next ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
               <CalendarDays className="size-4" />
@@ -88,9 +112,11 @@ export default async function StudentDashboard() {
             </p>
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">
-              {data.dues.length
-                ? "All sorted. You’re up to date!"
-                : "The office will add your fee soon."}
+              {coverage
+                ? "Your academic year rent is covered."
+                : data.dues.length
+                  ? "All sorted. You’re up to date!"
+                  : "The office will add your fee soon."}
             </p>
           )}
           <div className="mt-7 max-w-sm">
@@ -98,19 +124,27 @@ export default async function StudentDashboard() {
               <Checkout
                 compact
                 mode={cashfreeMode()}
-                dues={next ? [{
-                  id: next.id,
-                  label: next.label,
-                  dueDate: next.dueDate,
-                  outstanding: next.outstanding,
-                }] : []}
+                dues={
+                  next
+                    ? [
+                        {
+                          id: next.id,
+                          label: next.label,
+                          dueDate: next.dueDate,
+                          outstanding: next.outstanding,
+                        },
+                      ]
+                    : []
+                }
               />
             ) : (
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
                 <CheckCheck className="size-5" />
-                {data.dues.length
-                  ? "Nothing to pay right now"
-                  : "Welcome to your hostel"}
+                {coverage
+                  ? "Your academic year rent is covered."
+                  : data.dues.length
+                    ? "Nothing to pay right now"
+                    : "Welcome to your hostel"}
               </span>
             )}
           </div>
@@ -122,21 +156,38 @@ export default async function StudentDashboard() {
           <div>
             <p className="font-semibold">Payment pending / जाँच बाकी है</p>
             <p className="mt-1 text-xs leading-5">
-              Check its status in Payments. If your account was debited, do not pay again.
+              Check its status in Payments. If your account was debited, do not
+              pay again.
             </p>
           </div>
         </div>
       )}
       <div className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold tracking-tight">Monthly and unpaid dues</h2>
+        <h2 className="mb-3 text-lg font-semibold tracking-tight">
+          Monthly and unpaid dues
+        </h2>
         <div className="space-y-2">
           {data.dues.map((fee) => (
-            <div key={fee.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-4 text-sm">
-              <div><p className="font-semibold">{fee.label}</p><p className="text-xs text-muted-foreground">Paid {money(fee.paid)} · Due {dateLabel(fee.dueDate)}</p></div>
-              <span className="font-semibold">{money(fee.outstanding)} remaining</span>
+            <div
+              key={fee.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-4 text-sm"
+            >
+              <div>
+                <p className="font-semibold">{fee.label}</p>
+                <p className="text-xs text-muted-foreground">
+                  Paid {money(fee.paid)} · Due {dateLabel(fee.dueDate)}
+                </p>
+              </div>
+              <span className="font-semibold">
+                {money(fee.outstanding)} remaining
+              </span>
             </div>
           ))}
-          {!data.dues.length && <p className="text-sm text-muted-foreground">No monthly dues yet.</p>}
+          {!data.dues.length && (
+            <p className="text-sm text-muted-foreground">
+              No monthly dues yet.
+            </p>
+          )}
         </div>
       </div>
       <div className="mb-5 mt-9 flex items-center justify-between">

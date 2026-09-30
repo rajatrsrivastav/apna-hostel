@@ -37,6 +37,20 @@ export async function generateMonthlyRentWithIds(
       greatest(date_trunc('month', u.accepted_at AT TIME ZONE 'Asia/Kolkata'), ${FEE_COLLECTION_START_DATE}::date::timestamp),
       date_trunc('month', ${now.toISOString()}::timestamptz AT TIME ZONE 'Asia/Kolkata'), interval '1 month'
     ) m(month)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM rent_coverage c
+      WHERE c.user_id = u.id AND c.revoked_at IS NULL
+        AND to_char(m.month, 'YYYY-MM') BETWEEN c.start_month AND c.end_month
+    ) AND NOT EXISTS (
+      SELECT 1 FROM rent_coverage c
+      WHERE c.user_id = u.id AND c.revoked_at IS NULL AND NOT c.continue_next_year
+        AND to_char(m.month, 'YYYY-MM') > c.end_month
+        AND NOT EXISTS (
+          SELECT 1 FROM rent_coverage newer WHERE newer.user_id = u.id
+            AND newer.revoked_at IS NULL AND newer.start_month > c.start_month
+            AND newer.start_month <= to_char(m.month, 'YYYY-MM')
+        )
+    )
     ON CONFLICT (user_id, rent_month) DO NOTHING RETURNING id`);
   return {
     count: result.rows.length,

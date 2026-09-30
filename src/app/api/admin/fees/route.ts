@@ -1,8 +1,14 @@
 import { rateLimit } from "@/lib/rate-limit";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { feeDues, payments, studentProfiles, users } from "@/db/schema";
+import {
+  feeDues,
+  payments,
+  rentCoverage,
+  studentProfiles,
+  users,
+} from "@/db/schema";
 import { requireAdmin } from "@/lib/access";
 import { AppError } from "@/lib/errors";
 import { mutation, jsonBody } from "@/lib/http";
@@ -86,6 +92,24 @@ export const PATCH = mutation(async (req) => {
     const fee = await lockFee(tx, values.id);
     if (fee.revision !== values.revision)
       throw new AppError("This fee changed. Reload and try again.", 409);
+    if (fee.rentMonth) {
+      const covered = await tx
+        .select({ id: rentCoverage.id })
+        .from(rentCoverage)
+        .where(
+          and(
+            eq(rentCoverage.userId, fee.userId),
+            isNull(rentCoverage.revokedAt),
+            lte(rentCoverage.startMonth, fee.rentMonth),
+            gte(rentCoverage.endMonth, fee.rentMonth),
+          ),
+        );
+      if (covered.length)
+        throw new AppError(
+          "Manage the academic year payment above before changing a covered fee.",
+          409,
+        );
+    }
     const [pending] = await tx
       .select()
       .from(payments)

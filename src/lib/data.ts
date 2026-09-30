@@ -1,16 +1,26 @@
 import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { feeDues, payments, studentProfiles, users } from "@/db/schema";
+import {
+  feeDues,
+  payments,
+  rentCoverage,
+  studentProfiles,
+  users,
+} from "@/db/schema";
 import { generateMonthlyRent, indiaMonth } from "./rent";
 import { balance, feeStatus } from "./money";
 import { reconcileStudentCashfreePayments } from "./payment-verification";
-import { collectionStarted, isPostLaunchFee, FEE_COLLECTION_START_DATE } from "./fee-policy";
+import {
+  collectionStarted,
+  isPostLaunchFee,
+  FEE_COLLECTION_START_DATE,
+} from "./fee-policy";
 export async function studentData(userId: string) {
   await generateMonthlyRent(userId);
   await reconcileStudentCashfreePayments(userId);
   const db = getDb();
-  const [fees, history] = await Promise.all([
+  const [fees, history, yearCoverage] = await Promise.all([
     db
       .select()
       .from(feeDues)
@@ -21,43 +31,58 @@ export async function studentData(userId: string) {
       .from(payments)
       .where(eq(payments.userId, userId))
       .orderBy(desc(payments.createdAt)),
+    db
+      .select()
+      .from(rentCoverage)
+      .where(eq(rentCoverage.userId, userId))
+      .orderBy(desc(rentCoverage.startMonth), desc(rentCoverage.recordedAt)),
   ]);
-  const dues = fees.filter((fee) => collectionStarted() && isPostLaunchFee(fee)).map((fee) => {
-    const related = history.filter((p) => p.feeDueId === fee.id);
-    const paid = related
-      .filter((p) => p.status === "verified")
-      .reduce((s, p) => s + p.amount, 0);
-    const outstanding = balance(fee.amount, paid, fee.waivedAmount);
-    return {
-      ...fee,
-      paid,
-      outstanding,
-      status: feeStatus(
+  const dues = fees
+    .filter((fee) => collectionStarted() && isPostLaunchFee(fee))
+    .map((fee) => {
+      const related = history.filter((p) => p.feeDueId === fee.id);
+      const paid = related
+        .filter((p) => p.status === "verified")
+        .reduce((s, p) => s + p.amount, 0);
+      const outstanding = balance(fee.amount, paid, fee.waivedAmount);
+      return {
+        ...fee,
+        yearCovered: yearCoverage.some(
+          (c) =>
+            !c.revokedAt &&
+            fee.rentMonth &&
+            fee.rentMonth >= c.startMonth &&
+            fee.rentMonth <= c.endMonth,
+        ),
+        paid,
         outstanding,
-        related.some((p) => p.status === "pending"),
-      ),
-      pending: related.find((p) => p.status === "pending"),
-    };
-  });
-    const currentOrLaunchMonth = (f: { rentMonth: string | null }) =>
-      f.rentMonth === indiaMonth() ||
-      (indiaMonth() < FEE_COLLECTION_START_DATE.slice(0, 7) &&
-        f.rentMonth === FEE_COLLECTION_START_DATE.slice(0, 7));
-    return {
-      dues,
-      history,
-      currentMonthRent: dues
-        .filter((f) => currentOrLaunchMonth(f))
-        .reduce((s, f) => s + f.amount, 0),
-      currentMonthDue: dues
-        .filter((f) => currentOrLaunchMonth(f))
-        .reduce((s, f) => s + f.outstanding, 0),
-      previousDue: dues
-        .filter((f) => !currentOrLaunchMonth(f))
-        .reduce((s, f) => s + f.outstanding, 0),
-      totalDue: dues.reduce((s, f) => s + f.outstanding, 0),
-      totalPaid: dues.reduce((s, fee) => s + fee.paid, 0),
-    };
+        status: feeStatus(
+          outstanding,
+          related.some((p) => p.status === "pending"),
+        ),
+        pending: related.find((p) => p.status === "pending"),
+      };
+    });
+  const currentOrLaunchMonth = (f: { rentMonth: string | null }) =>
+    f.rentMonth === indiaMonth() ||
+    (indiaMonth() < FEE_COLLECTION_START_DATE.slice(0, 7) &&
+      f.rentMonth === FEE_COLLECTION_START_DATE.slice(0, 7));
+  return {
+    dues,
+    history,
+    yearCoverage,
+    currentMonthRent: dues
+      .filter((f) => currentOrLaunchMonth(f))
+      .reduce((s, f) => s + f.amount, 0),
+    currentMonthDue: dues
+      .filter((f) => currentOrLaunchMonth(f))
+      .reduce((s, f) => s + f.outstanding, 0),
+    previousDue: dues
+      .filter((f) => !currentOrLaunchMonth(f))
+      .reduce((s, f) => s + f.outstanding, 0),
+    totalDue: dues.reduce((s, f) => s + f.outstanding, 0),
+    totalPaid: dues.reduce((s, fee) => s + fee.paid, 0),
+  };
 }
 export async function adminStudents() {
   await generateMonthlyRent();
@@ -72,8 +97,12 @@ export async function adminStudents() {
       WHERE ${collectionStarted()} AND (f.rent_month >= ${FEE_COLLECTION_START_DATE.slice(0, 7)} OR (f.rent_month IS NULL AND f.due_date >= ${FEE_COLLECTION_START_DATE}))
       GROUP BY p.user_id)
     SELECT u.id, u.email, coalesce(s.full_name,u.name) AS name, s.phone, s.course, s.trade, s.study_year,
+    yc.start_month AS year_start_month, yc.end_month AS year_end_month, yc.continue_next_year,
     coalesce(f.outstanding,0)::int AS outstanding, coalesce(h.paid,0)::int AS paid, coalesce(h.pending,false) AS pending, h.last_payment
-    FROM users u LEFT JOIN student_profiles s ON s.user_id=u.id LEFT JOIN fees f ON f.user_id=u.id LEFT JOIN history h ON h.user_id=u.id WHERE u.role='student' AND u.approval_status='accepted' ORDER BY u.created_at DESC`);
+    FROM users u LEFT JOIN student_profiles s ON s.user_id=u.id LEFT JOIN fees f ON f.user_id=u.id LEFT JOIN history h ON h.user_id=u.id
+    LEFT JOIN LATERAL (SELECT start_month,end_month,continue_next_year FROM rent_coverage c
+      WHERE c.user_id=u.id AND c.revoked_at IS NULL ORDER BY (c.start_month <= ${indiaMonth()}) DESC, c.start_month DESC LIMIT 1) yc ON true
+    WHERE u.role='student' AND u.approval_status='accepted' ORDER BY u.created_at DESC`);
   return (
     result.rows as unknown as {
       id: string;
@@ -87,6 +116,9 @@ export async function adminStudents() {
       paid: number;
       pending: boolean;
       last_payment: Date | null;
+      year_start_month: string | null;
+      year_end_month: string | null;
+      continue_next_year: boolean | null;
     }[]
   ).map((s) => ({ ...s, status: feeStatus(s.outstanding, s.pending) }));
 }

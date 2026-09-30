@@ -1,3 +1,4 @@
+import { indiaMonth } from "@/lib/rent";
 import Link from "next/link";
 import {
   Users,
@@ -145,7 +146,7 @@ export default async function AdminDashboard() {
           </div>
         </Card>
       </div>
-      <AdminStudents
+      <AdminStudents currentMonth={indiaMonth()}
         students={students.map((s) => ({
           ...s,
           last_payment: s.last_payment

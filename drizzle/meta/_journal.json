@@ -71,6 +71,13 @@
       "when": 1790553600000,
       "tag": "0009_admin_self_payment",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0010_academic_year_coverage",
+      "breakpoints": true
     }
   ]
 }

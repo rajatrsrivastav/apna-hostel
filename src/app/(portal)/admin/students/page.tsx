@@ -1,3 +1,4 @@
+import { indiaMonth } from "@/lib/rent";
 import { requireAdmin } from "@/lib/access";
 import { adminStudents } from "@/lib/data";
 import { AdminStudents } from "@/components/admin-students";
@@ -14,7 +15,7 @@ export default async function StudentsPage() {
           Find a student. Keep their fees sorted.
         </p>
       </div>
-      <AdminStudents
+      <AdminStudents currentMonth={indiaMonth()}
         students={students.map((s) => ({
           ...s,
           last_payment: s.last_payment
