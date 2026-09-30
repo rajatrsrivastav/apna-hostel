@@ -79,5 +79,6 @@ export function publicOrigin(
 // Reserved test identity, never a credential or an existing student account.
 export const REVIEW_USER_ID = "cashfree-review-test-student";
 export function reviewLoginEnabled() {
-  return process.env.ENABLE_CASHFREE_REVIEW_LOGIN === "true";
+  return process.env.NODE_ENV !== "production" &&
+    process.env.ENABLE_CASHFREE_REVIEW_LOGIN === "true";
 }

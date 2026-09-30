@@ -58,22 +58,19 @@ it("shows no admin outstanding before October, then charges only October rent", 
   }
 });
 
-it("generates launch month rent for student when review login is enabled before October", async () => {
+it("never generates rent for the Cashfree review student", async () => {
   await db.insert(schema.users).values({
-    id: "review-test-student", name: "Review student", email: "review@example.test",
+    id: "cashfree-review-test-student", name: "Review student", email: "review@example.test",
     role: "student", approvalStatus: "accepted", monthlyRent: 100_000,
     acceptedAt: new Date("2026-09-15T00:00:00Z"),
   });
   process.env.ENABLE_CASHFREE_REVIEW_LOGIN = "true";
   try {
-    const count = await generateMonthlyRent("review-test-student", new Date("2026-09-29T12:00:00Z"));
-    expect(count).toBe(1);
-    const dues = await db.select().from(schema.feeDues).where(eq(schema.feeDues.userId, "review-test-student"));
-    expect(dues.length).toBe(1);
-    expect(dues[0].rentMonth).toBe("2026-10");
-    expect(dues[0].amount).toBe(100_000);
+    expect(await generateMonthlyRent("cashfree-review-test-student", new Date("2026-09-29T12:00:00Z"))).toBe(0);
+    expect(await generateMonthlyRent("cashfree-review-test-student", new Date("2026-10-01T00:00:00Z"))).toBe(0);
+    const dues = await db.select().from(schema.feeDues).where(eq(schema.feeDues.userId, "cashfree-review-test-student"));
+    expect(dues).toHaveLength(0);
   } finally {
     delete process.env.ENABLE_CASHFREE_REVIEW_LOGIN;
   }
 });
-

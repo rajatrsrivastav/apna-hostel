@@ -135,3 +135,14 @@ it("removed review login returns 404", async () => {
     );
     expect(response.status).toBe(404);
 });
+
+it("disables reviewer login in production even if its flag remains set", async () => {
+  const { reviewLoginEnabled } = await import("@/lib/env");
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("ENABLE_CASHFREE_REVIEW_LOGIN", "true");
+  try {
+    expect(reviewLoginEnabled()).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

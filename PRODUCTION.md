@@ -1,11 +1,11 @@
 # Production release notes
 
-The October 2026 update preserves the UI, Google authentication, student/admin approval, monthly rent, Cashfree checkout, and legal pages. Rent and student payments begin on 1 October 2026, controlled by `src/lib/fee-policy.ts` with no new environment variable. The reviewer login helper has been removed.
+The October 2026 update preserves the UI, Google authentication, student/admin approval, monthly rent, Cashfree checkout, and legal pages. Rent and student payments begin on 1 October 2026, controlled by `src/lib/fee-policy.ts` with no new environment variable. The reviewer login helper is disabled in production.
 
 ## Cleanup
 
 - Deleted `scripts/seed-admin.ts` and its `db:seed` command: verified Google identities already receive their configured admin role through the existing authentication/access checks.
-- The obsolete simulated-payment endpoint and reviewer sign-in return 404.
+- The obsolete simulated-payment endpoint and production reviewer sign-in return 404.
 - Removed ngrok-specific development origins, the unused rent constant and checkout success state, mock email success, the fallback Resend sender, and fallback localhost notification links.
 - Kept referenced app components, useful isolated tests, and migration history. The legacy payment cancellation route remains a server-verification compatibility endpoint.
 - No packages were uninstalled: the dependency/import audit found each package used by the app, framework, tests, or deployment tools. `dotenv` moved from runtime to development dependencies. The lockfile is updated without package version upgrades.

@@ -13,12 +13,11 @@ it("excludes pre-October rent and one-off fees", () => {
   expect(isPostLaunchFee({ rentMonth: null, dueDate: "2026-10-01" })).toBe(true);
 });
 
-it("allows collection before launch date when review login is enabled", () => {
+it("keeps the launch cutoff when review login is enabled", () => {
   process.env.ENABLE_CASHFREE_REVIEW_LOGIN = "true";
   try {
-    expect(collectionStarted()).toBe(true);
+    expect(collectionStarted(new Date("2026-09-30T18:29:59Z"))).toBe(false);
   } finally {
     delete process.env.ENABLE_CASHFREE_REVIEW_LOGIN;
   }
 });
-
